@@ -1,0 +1,22 @@
+# Environments
+.venv/
+.venv-1/
+venv/
+env/
+
+# Secrets
+.env
+
+# Python Caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# OS generated files
+.DS_Store
+Thumbs.db
