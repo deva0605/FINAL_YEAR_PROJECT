@@ -2,7 +2,6 @@ import sys
 import os
 import logging
 import re
-import pandas as pd
 from typing import Optional, List
 from dotenv import load_dotenv
 
@@ -16,11 +15,14 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 # 3. Now import FastAPI and the Agents
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from data_ingestion.api_agent import APIAgent
-from data_ingestion.scrapping_agent import ScrapingAgent
-from agents.retriever_agent import RetrieverAgent
-from agents.analysis_agent import AnalysisAgent
-from agents.language_agent import LanguageAgent
+from backend.agents.research_agent import ResearchAgent, ResearchReport
+from backend.agents.strategy_agent import StrategyAgent, StrategyRequest
+from backend.agents.risk_agent import RiskAgent, RiskRequest
+from backend.agents.decision_agent import DecisionAgent
+from backend.workflow_orchestrator import DefaultWorkflowOrchestrator
+from backend.workflow_state import WorkflowState
+from backend.query_understanding import QueryParser, ParsedQuery
+from backend.ticker_resolver import TickerResolver
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -37,12 +39,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize Agents
-api_agent = APIAgent()
-scraping_agent = ScrapingAgent()
-retriever_agent = RetrieverAgent()
-analysis_agent = AnalysisAgent()
-language_agent = LanguageAgent()
+# Initialize the Research Agent
+research_agent = ResearchAgent()
+strategy_agent = StrategyAgent()
+risk_agent = RiskAgent()
+decision_agent = DecisionAgent()
+workflow_orchestrator = DefaultWorkflowOrchestrator(
+    research_agent=research_agent,
+    strategy_agent=strategy_agent,
+    risk_agent=risk_agent,
+    decision_agent=decision_agent,
+)
+
+query_parser = QueryParser()
+ticker_resolver = TickerResolver()
 
 # Default Indian Market Symbols
 DEFAULT_SYMBOLS = ['RELIANCE.BO', 'TCS.BO', 'INFY.BO']
@@ -97,56 +107,34 @@ async def retrieve(query: str, symbols: Optional[str] = None):
         else:
             symbol_list = extract_symbols_from_query(query)
             
-        logger.info(f"Fetching market data for: {symbol_list}")
-        market_data = api_agent.get_market_data(symbol_list)
-        
-        if not market_data:
+        reports = []
+        market_data = {}
+        context = []
+
+        for symbol in symbol_list:
+            workflow_state = WorkflowState()
+            report = research_agent.research(symbol, workflow_state=workflow_state)
+            report_payload = report.model_dump(mode="json")
+            reports.append(report_payload)
+            market_data[symbol] = report_payload.get("market_data", [])
+            context.extend(report_payload.get("context", []))
+
+        if not reports:
             return {
                 "error": f"Could not fetch data for symbols: {', '.join(symbol_list)}. Please check if the symbols are valid.",
                 "query": query,
                 "attempted_symbols": symbol_list
             }
-        
-        # Step 2: Serialize Market Data
-        serialized_market_data = api_agent.serialize_market_data(market_data)
-        
-        # Step 3: Generate news URLs based on symbols
-        news_urls = [f"https://finance.yahoo.com/quote/{symbol}/news/" for symbol in symbol_list[:3]]
-        logger.info(f"🔍 Attempting to scrape news from: {news_urls}")
-        articles = scraping_agent.scrape_news(news_urls, timeout=15)
-        
-        if not articles:
-            logger.warning("⚠️ News scraping failed - generating fallback articles from market data")
-            articles = []
-            for symbol in symbol_list:
-                company_name = symbol.split('.')[0] # Remove .BO or .NS
-                articles.append({
-                    "title": f"{company_name} - Market Data Update", 
-                    "text": f"Market data retrieved successfully for {company_name} evaluation.",
-                    "url": f"https://finance.yahoo.com/quote/{symbol}"
-                })
-        
-        # Step 4: Index and retrieve
-        retriever_agent.index_documents(articles)
-        context_docs = retriever_agent.retrieve(query, k=3)
-        
-        context = []
-        if context_docs:
-            if hasattr(context_docs[0], 'page_content'):
-                context = [doc.page_content for doc in context_docs]
-            elif isinstance(context_docs[0], dict):
-                context = [doc.get('text', str(doc)) for doc in context_docs]
-            else:
-                context = [str(doc) for doc in context_docs]
-                
-        if not context:
-            context = [f"Market data retrieved for {', '.join(symbol_list)}"]
+
+        summary = "\n\n".join(report.get("summary", "") for report in reports if report.get("summary"))
 
         return {
-            "market_data": serialized_market_data,
+            "market_data": market_data,
             "context": context,
             "query": query,
-            "symbols": symbol_list
+            "symbols": symbol_list,
+            "summary": summary,
+            "reports": reports,
         }
     except Exception as e:
         logger.error(f"Error retrieving data: {str(e)}")
@@ -156,55 +144,110 @@ async def retrieve(query: str, symbols: Optional[str] = None):
 async def analyze(data: dict):
     try:
         logger.info("Processing analyze request")
-        
-        symbols = data.get("data", {}).get("symbols", DEFAULT_SYMBOLS)
-        serialized_data = data.get("data", {}).get("market_data", {})
-        
-        # Convert serialized data back to DataFrame
-        market_data = {}
-        for symbol, records in serialized_data.items():
-            if isinstance(records, list):
-                market_data[symbol] = pd.DataFrame.from_records(records)
-            else:
-                market_data[symbol] = records
-                
-        if not market_data:
-             for symbol in symbols:
-                market_data[symbol] = pd.DataFrame({'Close': [100.0]})
 
-        context = data.get("data", {}).get("context", [])
-        query = data.get("data", {}).get("query", f"Analyze {', '.join(symbols)}")
-        
-        # Assign dummy portfolio weights
-        portfolio_weights = {symbol: max(0.15 - (i * 0.02), 0.05) for i, symbol in enumerate(symbols)}
-        analysis_agent.portfolio = portfolio_weights
-        
-        # Analyze Risk
-        exposure = analysis_agent.analyze_risk_exposure(market_data)
-        if not exposure:
-            exposure = {s: {'weight': w, 'value': w * 1000000, 'price': 100.0} for s, w in portfolio_weights.items()}
-            
-        # Get Earnings
-        earnings = {}
-        for symbol in symbols:
-            try:
-                earn_data = api_agent.get_earnings(symbol)
-                earnings[symbol] = earn_data if earn_data is not None else pd.DataFrame({'Year': [2023, 2024], 'Earnings': [10.5, 12.3]})
-            except:
-                earnings[symbol] = pd.DataFrame({'Year': [2023, 2024], 'Earnings': [10.5, 12.3]})
-                
-        serialized_earnings = {s: (d.to_dict(orient='records') if isinstance(d, pd.DataFrame) else d) for s, d in earnings.items()}
+        payload = data.get("data", {})
+        if payload.get("summary"):
+            return {"summary": payload["summary"]}
 
-        # Generate Brief
-        try:
-            brief = language_agent.generate_brief(str(context), str(exposure), str(serialized_earnings))
-            if not brief or brief.isspace():
-                raise Exception("Generated brief is empty")
-        except Exception as e:
-            logger.warning(f"Error generating brief: {str(e)}, using fallback")
-            brief = f"### Market Brief: {query}\n\nAnalyzing exposure for {', '.join(symbols)}. Real-time AI generation currently unavailable."
+        reports = payload.get("reports") or []
+        if reports:
+            return {"summary": reports[0].get("summary", "")}
 
-        return {"summary": brief}
+        symbols = payload.get("symbols", DEFAULT_SYMBOLS)
+        target_symbol = symbols[0] if symbols else DEFAULT_SYMBOLS[0]
+        workflow_state = WorkflowState()
+        report = research_agent.research(target_symbol, workflow_state=workflow_state)
+        return {"summary": report.summary, "report": report.model_dump(mode="json")}
     except Exception as e:
         logger.error(f"Error analyzing data: {str(e)}")
+        return {"error": str(e)}
+
+@app.post("/strategy/strategy")
+async def strategy(request: StrategyRequest):
+    try:
+        logger.info("Processing strategy request")
+        workflow_state = WorkflowState(research_report=request.research_report)
+        # use orchestrator helper to invoke agent in a backward-compatible way
+        strategy_report = workflow_orchestrator._invoke_agent(
+            strategy_agent.strategy, workflow_state.research_report, workflow_state
+        )
+        return strategy_report.model_dump(mode="json")
+    except Exception as e:
+        logger.error(f"Error generating strategy: {str(e)}")
+        return {"error": str(e)}
+
+@app.post("/risk/risk")
+async def risk(request: RiskRequest):
+    try:
+        logger.info("Processing risk request")
+        workflow_state = WorkflowState(research_report=request.research_report)
+        # use orchestrator helper to invoke agent in a backward-compatible way
+        risk_report = workflow_orchestrator._invoke_agent(
+            risk_agent.assess_risk, workflow_state.research_report, workflow_state
+        )
+        return risk_report.model_dump(mode="json")
+    except Exception as e:
+        logger.error(f"Error generating risk report: {str(e)}")
+        return {"error": str(e)}
+
+
+@app.post("/decision/decision")
+async def decision(data: dict):
+    try:
+        payload = data or {}
+        research = payload.get("research_report")
+        strategy = payload.get("strategy_report")
+        risk = payload.get("risk_report")
+
+        workflow_state = WorkflowState(
+            research_report=research,
+            strategy_report=strategy,
+            risk_report=risk,
+        )
+
+        # Use orchestrator invoker to maintain backward-compatible shapes
+        decision_report = workflow_orchestrator._invoke_agent(
+            workflow_orchestrator.decision_agent.decide, workflow_state.research_report, workflow_state
+        )
+        return decision_report.model_dump(mode="json")
+    except Exception as e:
+        logger.error(f"Error generating decision: {str(e)}")
+        return {"error": str(e)}
+
+
+@app.post("/workflow/execute")
+async def execute_workflow(data: dict):
+    try:
+        query = (data.get("symbol") or data.get("data", {}).get("symbol") or DEFAULT_SYMBOLS[0]).strip()
+        logger.info(f"User Query: {query}")
+        
+        parsed_query = query_parser.parse(query)
+        logger.info(f"Parsed Query Intent: {parsed_query.intent}, Time Horizon: {parsed_query.time_horizon}")
+        
+        target = ""
+        if parsed_query.companies:
+            target = parsed_query.companies[0]
+            logger.info(f"Detected Company: {target}")
+        elif parsed_query.tickers:
+            target = parsed_query.tickers[0]
+            logger.info(f"Detected Ticker: {target}")
+        else:
+            target = query
+            logger.info(f"Detected Target: {target}")
+            
+        resolved_ticker = ticker_resolver.resolve(target)
+        if not resolved_ticker:
+            logger.error(f"Could not resolve ticker for: {target}")
+            # Instead of throwing 404, we return workflow state with error
+            workflow_state = WorkflowState()
+            workflow_state.record_error(f"Ticker not found for '{target}'")
+            return workflow_state.model_dump(mode="json")
+            
+        logger.info(f"Resolved Ticker: {resolved_ticker}")
+        logger.info(f"Fetching Yahoo Finance: {resolved_ticker}")
+        
+        workflow_state = workflow_orchestrator.execute(resolved_ticker, parsed_query=parsed_query)
+        return workflow_state.model_dump(mode="json")
+    except Exception as e:
+        logger.error(f"Error executing workflow: {str(e)}")
         return {"error": str(e)}

@@ -1,7 +1,10 @@
-from newspaper import Article
-import yfinance as yf
 import logging
 from datetime import datetime
+
+try:
+    from newspaper import Article
+except ImportError:  # pragma: no cover - optional dependency
+    Article = None
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -30,6 +33,12 @@ class ScrapingAgent:
                 # Format: https://finance.yahoo.com/quote/SYMBOL/news/
                 if 'finance.yahoo.com/quote/' in url:
                     try:
+                        try:
+                            import yfinance as yf
+                        except ImportError:
+                            logger.warning("yfinance is not installed; skipping Yahoo Finance news fetch")
+                            continue
+
                         symbol = url.split('/quote/')[1].split('/')[0]
                         logger.info(f"Extracting news for {symbol} using yfinance API")
                         
@@ -60,6 +69,10 @@ class ScrapingAgent:
                         logger.warning(f"Could not fetch news via yfinance for {url}: {str(e)}")
                 
                 # Fallback to newspaper scraping for direct article URLs
+                if Article is None:
+                    logger.warning("newspaper3k is not installed; skipping direct article scrape")
+                    continue
+
                 try:
                     article = Article(url)
                     article.download()

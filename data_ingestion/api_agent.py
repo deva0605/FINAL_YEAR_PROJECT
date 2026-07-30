@@ -1,4 +1,3 @@
-import yfinance as yf
 import pandas as pd
 from datetime import datetime, timedelta
 import logging
@@ -24,6 +23,12 @@ class APIAgent:
             Dictionary with symbol keys and DataFrame values, or empty dict if all fail
         """
         try:
+            try:
+                import yfinance as yf
+            except ModuleNotFoundError:
+                logger.warning("yfinance is not installed; returning no market data")
+                return {}
+
             # Parse dates properly
             if not end_date:
                 end_date = datetime.now().strftime('%Y-%m-%d')
@@ -85,6 +90,12 @@ class APIAgent:
             Earnings DataFrame or None if failed
         """
         try:
+            try:
+                import yfinance as yf
+            except ModuleNotFoundError:
+                logger.warning("yfinance is not installed; returning no earnings data for %s", symbol)
+                return None
+
             logger.info(f"Fetching earnings/income statement for {symbol}...")
             ticker = yf.Ticker(symbol)
             
