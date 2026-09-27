@@ -1,5 +1,9 @@
 import React from 'react';
 import { useWorkflowStore } from '../store/useWorkflowStore';
+import { MarketSnapshot } from '../components/report/MarketSnapshot';
+import { TechnicalAnalysisPanel } from '../components/report/TechnicalAnalysisPanel';
+import { FundamentalsPanel } from '../components/report/FundamentalsPanel';
+import { NewsAnalysisPanel } from '../components/report/NewsAnalysisPanel';
 
 export const Research: React.FC = () => {
   const { workflowState } = useWorkflowStore();
@@ -7,10 +11,10 @@ export const Research: React.FC = () => {
 
   if (!report) {
     return (
-      <div className="flex flex-col items-center justify-center h-[50vh] text-on-surface-variant">
-        <span className="material-symbols-outlined text-[48px] mb-4 opacity-50">newspaper</span>
-        <h2 className="text-headline-sm font-bold">No Research Data</h2>
-        <p>Run an analysis from the dashboard to generate a research report.</p>
+      <div className="flex flex-col items-center justify-center h-[50vh] text-slate-500">
+        <svg className="w-12 h-12 mb-4 opacity-50" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" x2="16.65" y1="21" y2="16.65"/></svg>
+        <h2 className="text-lg font-semibold text-slate-900">No Research Data</h2>
+        <p className="text-sm">Run an analysis from the dashboard to generate a research report.</p>
       </div>
     );
   }
@@ -18,76 +22,17 @@ export const Research: React.FC = () => {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between mb-2">
-        <h2 className="text-display-sm font-bold text-on-surface">Research Findings</h2>
-        <div className="px-3 py-1 bg-primary-container text-on-primary-container rounded-full text-sm font-bold">
+        <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Research Findings</h2>
+        <div className="px-3 py-1 bg-slate-100 text-slate-700 rounded-md text-xs font-mono font-medium border border-slate-200">
           {report.company || report.symbol}
         </div>
       </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 flex flex-col gap-6">
-          <section className="bg-surface-container-lowest p-6 rounded-xl shadow-sm border border-outline-variant/30">
-            <h3 className="text-title-lg font-bold text-primary mb-4 flex items-center gap-2">
-              <span className="material-symbols-outlined">analytics</span> Market Overview
-            </h3>
-            <div className="text-body-md text-on-surface-variant leading-relaxed whitespace-pre-wrap">
-              {report.summary}
-            </div>
-          </section>
-
-          {report.context && report.context.length > 0 && (
-            <section className="bg-surface-container-lowest p-6 rounded-xl shadow-sm border border-outline-variant/30">
-              <h3 className="text-title-lg font-bold text-primary mb-4 flex items-center gap-2">
-                <span className="material-symbols-outlined">feed</span> Recent Context & News
-              </h3>
-              <ul className="space-y-3">
-                {report.context.map((ctx, idx) => (
-                  <li key={idx} className="p-3 bg-surface-container-low rounded-lg border border-outline-variant/20 text-sm text-on-surface-variant">
-                    {ctx}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-        </div>
-
-        <div className="flex flex-col gap-6">
-           <section className="bg-surface-container-lowest p-6 rounded-xl shadow-sm border border-outline-variant/30">
-            <h3 className="text-title-lg font-bold text-primary mb-4 flex items-center gap-2">
-              <span className="material-symbols-outlined">show_chart</span> Market Data (Latest)
-            </h3>
-            {report.market_data && report.market_data.length > 0 ? (
-              <div className="flex flex-col gap-4">
-                {(() => {
-                  const latest = report.market_data[report.market_data.length - 1];
-                  return (
-                    <>
-                      <div className="flex justify-between border-b border-outline-variant/20 pb-2">
-                        <span className="text-on-surface-variant">Close</span>
-                        <span className="font-bold text-on-surface">₹{Number(latest.Close || latest.close || 0).toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between border-b border-outline-variant/20 pb-2">
-                        <span className="text-on-surface-variant">Open</span>
-                        <span className="font-bold text-on-surface">₹{Number(latest.Open || latest.open || 0).toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between border-b border-outline-variant/20 pb-2">
-                        <span className="text-on-surface-variant">High</span>
-                        <span className="font-bold text-on-surface">₹{Number(latest.High || latest.high || 0).toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between pb-2">
-                        <span className="text-on-surface-variant">Low</span>
-                        <span className="font-bold text-on-surface">₹{Number(latest.Low || latest.low || 0).toFixed(2)}</span>
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
-            ) : (
-               <p className="text-sm text-on-surface-variant">No market data available.</p>
-            )}
-          </section>
-        </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+         <MarketSnapshot report={report} />
+         <TechnicalAnalysisPanel report={report} />
       </div>
+      <FundamentalsPanel report={report} strategy={workflowState?.strategy_report} />
+      <NewsAnalysisPanel report={report} />
     </div>
   );
 };

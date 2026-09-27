@@ -8,12 +8,11 @@ interface FundamentalsPanelProps {
   strategy?: StrategyReport;
 }
 
-export const FundamentalsPanel: React.FC<FundamentalsPanelProps> = ({ report, strategy }) => {
+export const FundamentalsPanel: React.FC<FundamentalsPanelProps> = ({ report }) => {
   const r = report;
   const fund = r?.fundamentals;
   const peRatio = r?.pe_ratio ?? fund?.pe_ratio;
   const marketCap = r?.market_cap ?? fund?.market_cap;
-  const divYield = fund?.dividend_yield;
   const pb = fund?.price_to_book;
   const beta = fund?.beta;
   const summary = r?.fundamental_summary || fund?.long_business_summary;
@@ -36,28 +35,26 @@ export const FundamentalsPanel: React.FC<FundamentalsPanelProps> = ({ report, st
   }
 
   return (
-    <SectionCard title="Fundamental Analysis" icon="account_balance" accent="tertiary">
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
+    <SectionCard title="Fundamental Analysis" badge="Valuation">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
         <DataMetric label="Market Cap" value={marketCap != null ? (marketCap >= 1e9 ? `$${(marketCap / 1e9).toFixed(1)}B` : `$${(marketCap / 1e6).toFixed(0)}M`) : undefined} sub={marketCapTier(marketCap)} />
         <DataMetric label="P/E Ratio" value={peRatio?.toFixed(1)} sub={valuationLabel(peRatio)} />
         <DataMetric label="Price to Book" value={pb?.toFixed(2)} />
-        <DataMetric label="Dividend Yield" value={divYield != null ? `${(divYield * 100).toFixed(2)}%` : undefined} />
         <DataMetric label="Beta" value={beta?.toFixed(2)} sub={beta != null ? (beta > 1.5 ? 'High Volatility' : beta < 0.5 ? 'Defensive' : 'Moderate') : undefined} />
-        <DataMetric label="EPS" value={r?.eps != null ? `$${r.eps.toFixed(2)}` : undefined} />
       </div>
 
       {summary && (
-        <div className="p-4 bg-surface-container rounded-xl border-l-4 border-tertiary/30">
-          <div className="text-label-sm text-on-surface-variant uppercase tracking-widest mb-2">Fundamental Summary</div>
-          <p className="text-body-md text-on-surface leading-relaxed">{summary}</p>
+        <div className="bg-slate-50 border border-slate-100 rounded-xl p-4">
+          <div className="text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-2">Fundamental Summary</div>
+          <p className="text-xs text-slate-700 leading-relaxed">{summary}</p>
         </div>
       )}
 
       {fund?.website && (
-        <div className="mt-3">
-          <a href={fund.website} target="_blank" rel="noreferrer" className="text-primary text-label-md hover:underline flex items-center gap-1">
-            <span className="material-symbols-outlined text-[16px]">open_in_new</span>
-            {fund.website}
+        <div className="mt-4 flex justify-end">
+          <a href={fund.website} target="_blank" rel="noreferrer" className="text-xs font-mono text-slate-500 hover:text-slate-900 transition flex items-center gap-1.5">
+            <span>Corporate Website</span>
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" x2="21" y1="14" y2="3" /></svg>
           </a>
         </div>
       )}

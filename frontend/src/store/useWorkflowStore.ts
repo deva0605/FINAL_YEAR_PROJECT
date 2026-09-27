@@ -13,6 +13,8 @@ interface WorkflowStore {
   counters: { companies: number; strategies: number; reports: number; avgConfidence: number };
   updateCounters: (state: WorkflowState) => void;
   reset: () => void;
+  isPresentationMode: boolean;
+  setPresentationMode: (val: boolean) => void;
 }
 
 export const useWorkflowStore = create<WorkflowStore>((set) => ({
@@ -39,5 +41,10 @@ export const useWorkflowStore = create<WorkflowStore>((set) => ({
       }
     };
   }),
-  reset: () => set({ workflowState: null, error: null })
+  reset: () => set({ workflowState: null, error: null }),
+  isPresentationMode: localStorage.getItem('presentationMode') !== 'false',
+  setPresentationMode: (val) => {
+    localStorage.setItem('presentationMode', String(val));
+    set({ isPresentationMode: val });
+  }
 }));

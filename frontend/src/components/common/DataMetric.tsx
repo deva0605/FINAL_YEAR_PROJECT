@@ -10,11 +10,11 @@ interface DataMetricProps {
 }
 
 export const DataMetric: React.FC<DataMetricProps> = ({ label, value, sub, highlight, className }) => (
-  <div className={cn('flex flex-col gap-1 p-4 bg-surface-container-low rounded-xl border border-outline-variant/10', className)}>
-    <span className="text-label-sm uppercase tracking-widest text-on-surface-variant font-medium">{label}</span>
-    <span className={cn('text-title-lg font-bold', highlight ? 'text-primary' : 'text-on-surface')}>
+  <div className={cn('flex flex-col gap-1 p-3 bg-white rounded-lg border border-slate-200/80 hover:border-slate-300 transition shadow-xs', className)}>
+    <span className="text-[10px] font-mono font-medium text-slate-400 uppercase">{label}</span>
+    <span className={cn('text-sm font-bold font-mono tabular-nums', highlight ? 'text-slate-900' : 'text-slate-700')}>
       {value ?? '—'}
     </span>
-    {sub && <span className="text-label-sm text-on-surface-variant">{sub}</span>}
+    {sub && <span className="text-[10px] text-slate-400 font-mono">{sub}</span>}
   </div>
 );

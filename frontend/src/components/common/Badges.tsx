@@ -8,28 +8,20 @@ interface ScoreBadgeProps {
 }
 
 function colorForScore(score: number) {
-  if (score >= 65) return 'text-secondary bg-secondary/10 border-secondary/30';
-  if (score >= 45) return 'text-tertiary bg-tertiary/10 border-tertiary/30';
-  return 'text-error bg-error/10 border-error/30';
-}
-
-function labelForScore(score: number) {
-  if (score >= 80) return 'Strong Buy';
-  if (score >= 65) return 'Buy';
-  if (score >= 45) return 'Hold';
-  if (score >= 25) return 'Sell';
-  return 'Strong Sell';
+  if (score >= 65) return 'text-emerald-800 bg-emerald-50 border-emerald-200/80';
+  if (score >= 45) return 'text-amber-800 bg-amber-50 border-amber-200/80';
+  return 'text-rose-800 bg-rose-50 border-rose-200/80';
 }
 
 export const ScoreBadge: React.FC<ScoreBadgeProps> = ({ score, label, size = 'md' }) => {
   if (score == null) return null;
   const color = colorForScore(score);
-  const sizeClass = size === 'lg' ? 'text-2xl px-5 py-2' : size === 'sm' ? 'text-xs px-2 py-0.5' : 'text-sm px-3 py-1';
+  const sizeClass = size === 'lg' ? 'text-xl px-4 py-2' : size === 'sm' ? 'text-xs px-2 py-0.5' : 'text-sm px-3 py-1';
 
   return (
-    <div className={cn('inline-flex flex-col items-center border rounded-xl', sizeClass, color)}>
-      <span className="font-black leading-none">{score.toFixed(0)}<span className="text-xs font-normal opacity-60">/100</span></span>
-      {label && <span className="text-xs font-bold uppercase tracking-wider mt-0.5">{label}</span>}
+    <div className={cn('inline-flex flex-col items-center border rounded-lg font-mono', sizeClass, color)}>
+      <span className="font-black leading-none tabular-nums">{score.toFixed(0)}<span className="text-xs font-normal opacity-60">/100</span></span>
+      {label && <span className="text-[10px] font-bold uppercase tracking-wider mt-0.5">{label}</span>}
     </div>
   );
 };
@@ -41,12 +33,18 @@ interface RecommendationBadgeProps {
 
 export const RecommendationBadge: React.FC<RecommendationBadgeProps> = ({ recommendation, large }) => {
   const rec = (recommendation || '').toUpperCase();
-  const color = rec.includes('BUY') ? 'text-secondary border-secondary/40 bg-secondary/10'
-    : rec.includes('SELL') ? 'text-error border-error/40 bg-error/10'
-    : 'text-tertiary border-tertiary/40 bg-tertiary/10';
+  const color = rec.includes('BUY')
+    ? 'text-emerald-800 border-emerald-200/80 bg-emerald-50'
+    : rec.includes('SELL')
+    ? 'text-rose-800 border-rose-200/80 bg-rose-50'
+    : 'text-amber-800 border-amber-200/80 bg-amber-50';
 
   return (
-    <div className={cn('inline-flex items-center justify-center border-2 font-black rounded-xl tracking-widest uppercase', color, large ? 'text-4xl px-8 py-3' : 'text-lg px-4 py-1.5')}>
+    <div className={cn(
+      'inline-flex items-center justify-center border font-black rounded-lg tracking-widest uppercase font-mono',
+      color,
+      large ? 'text-3xl px-6 py-2.5' : 'text-[10px] px-2 py-0.5'
+    )}>
       {recommendation || 'N/A'}
     </div>
   );
@@ -59,13 +57,13 @@ interface RiskBadgeProps {
 export const RiskBadge: React.FC<RiskBadgeProps> = ({ risk }) => {
   const r = (risk || '').toLowerCase();
   const color = r.includes('high') || r.includes('very')
-    ? 'text-error bg-error/10 border-error/20'
+    ? 'text-rose-700 bg-rose-50 border-rose-200'
     : r.includes('low')
-    ? 'text-secondary bg-secondary/10 border-secondary/20'
-    : 'text-tertiary bg-tertiary/10 border-tertiary/20';
+    ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+    : 'text-amber-700 bg-amber-50 border-amber-200';
 
   return (
-    <span className={cn('inline-flex items-center px-3 py-1 rounded-full text-xs font-bold uppercase border', color)}>
+    <span className={cn('inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase border font-mono', color)}>
       {risk || '—'}
     </span>
   );
@@ -78,16 +76,13 @@ interface SentimentBadgeProps {
 export const SentimentBadge: React.FC<SentimentBadgeProps> = ({ sentiment }) => {
   const s = (sentiment || '').toLowerCase();
   const color = s === 'bullish'
-    ? 'text-secondary bg-secondary/10 border-secondary/20'
+    ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
     : s === 'bearish'
-    ? 'text-error bg-error/10 border-error/20'
-    : 'text-on-surface-variant bg-surface-container border-outline-variant/20';
-
-  const icon = s === 'bullish' ? 'trending_up' : s === 'bearish' ? 'trending_down' : 'trending_flat';
+    ? 'text-rose-700 bg-rose-50 border-rose-200'
+    : 'text-slate-600 bg-slate-50 border-slate-200';
 
   return (
-    <span className={cn('inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold uppercase border', color)}>
-      <span className="material-symbols-outlined text-[14px]">{icon}</span>
+    <span className={cn('inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-semibold uppercase border font-mono', color)}>
       {sentiment || 'Neutral'}
     </span>
   );

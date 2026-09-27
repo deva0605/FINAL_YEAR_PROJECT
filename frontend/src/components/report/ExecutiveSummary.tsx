@@ -1,109 +1,77 @@
 import React from 'react';
 import { WorkflowState } from '../../types';
 import { RecommendationBadge, RiskBadge, SentimentBadge } from '../common/Badges';
-import { cn } from '../../utils/cn';
 
 interface ExecutiveSummaryProps {
   state: WorkflowState;
   query?: string;
 }
 
-function fmtDate(iso?: string) {
-  if (!iso) return 'Just now';
-  try { return new Date(iso).toLocaleString(); } catch { return iso; }
-}
-
-function isRuleBased(state: WorkflowState) {
-  return (
-    state.strategy_report?.reasoning?.includes('Rule-Based') ||
-    state.decision_report?.reasoning?.includes('Rule-Based')
-  );
-}
-
 export const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({ state, query }) => {
-  const { research_report: rr, decision_report: dr, strategy_report: sr, risk_report: risk, metadata } = state;
+  const { research_report: rr, decision_report: dr, strategy_report: sr, risk_report: risk } = state;
   const company = rr?.company || rr?.ticker || rr?.symbol || query || '—';
   const ticker = rr?.ticker || rr?.symbol || '—';
-  const ruleBased = isRuleBased(state);
 
   return (
-    <div className="bg-gradient-to-br from-surface-container to-surface-container-low rounded-2xl border border-outline-variant/20 p-8">
-      {/* Top row */}
-      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6 mb-8">
+    <div className="bg-white rounded-2xl border border-surface-border shadow-sm p-6">
+      <div className="flex flex-col md:flex-row md:items-start justify-between gap-6 mb-6 pb-6 border-b border-slate-100">
         <div>
           <div className="flex items-center gap-3 mb-2">
-            <span className="material-symbols-outlined text-primary text-[28px]">corporate_fare</span>
+            <div className="w-10 h-10 rounded-lg bg-slate-900 text-white flex items-center justify-center text-sm font-mono font-bold tracking-wider">
+              {ticker.substring(0, 2).toUpperCase()}
+            </div>
             <div>
-              <h1 className="text-display-sm font-black text-on-surface leading-none">{company}</h1>
-              {ticker !== company && (
-                <span className="text-label-lg text-on-surface-variant font-mono">{ticker}</span>
-              )}
+              <h1 className="text-xl font-bold text-slate-900 tracking-tight leading-none mb-1">{company}</h1>
+              <span className="text-xs text-slate-500 font-mono">{ticker}</span>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2 mt-3">
+          <div className="flex flex-wrap gap-2 mt-4">
             {rr?.sector && (
-              <span className="px-2 py-0.5 bg-primary/10 text-primary text-xs font-bold rounded-full border border-primary/20">
+              <span className="px-2 py-0.5 bg-slate-100 text-slate-600 text-[10px] font-medium font-mono rounded-md border border-slate-200 uppercase">
                 {rr.sector}
               </span>
             )}
             {rr?.industry && (
-              <span className="px-2 py-0.5 bg-surface-container text-on-surface-variant text-xs rounded-full border border-outline-variant/20">
+              <span className="px-2 py-0.5 bg-slate-100 text-slate-600 text-[10px] font-medium font-mono rounded-md border border-slate-200 uppercase">
                 {rr.industry}
               </span>
             )}
-            <span className={cn(
-              'px-2 py-0.5 text-xs font-bold rounded-full border',
-              ruleBased
-                ? 'bg-tertiary/10 text-tertiary border-tertiary/20'
-                : 'bg-secondary/10 text-secondary border-secondary/20'
-            )}>
-              {ruleBased ? '⚙ Rule-Based Analysis' : '✦ AI-Enhanced Analysis'}
-            </span>
           </div>
         </div>
 
-        {/* Big recommendation */}
-        <div className="flex flex-col items-center md:items-end gap-2">
+        <div className="flex flex-col items-center md:items-end gap-2 bg-slate-50/50 p-4 rounded-xl border border-slate-100">
+          <div className="text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-1">Final Verdict</div>
           <RecommendationBadge recommendation={dr?.recommendation} large />
-          <div className="flex items-center gap-2 text-label-md text-on-surface-variant">
+          <div className="flex items-center gap-2 text-xs text-slate-500 mt-2 font-mono">
             <span>Confidence:</span>
-            <span className="font-bold text-on-surface">
+            <span className="font-bold text-slate-900">
               {dr?.confidence != null ? `${(dr.confidence * 100).toFixed(0)}%` : '—'}
             </span>
           </div>
         </div>
       </div>
 
-      {/* Metrics row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="p-4 bg-surface-container-lowest rounded-xl border border-outline-variant/10">
-          <div className="text-label-sm text-on-surface-variant uppercase tracking-widest mb-1">Current Price</div>
-          <div className="text-title-xl font-bold text-on-surface">
+        <div className="flex flex-col gap-1.5 p-3 rounded-lg bg-slate-50 border border-slate-100">
+          <span className="text-[10px] text-slate-400 uppercase font-mono tracking-wider">Current Price</span>
+          <span className="text-lg font-bold text-slate-900 font-mono tabular-nums">
             {rr?.current_price != null ? `$${rr.current_price.toFixed(2)}` : '—'}
-          </div>
+          </span>
         </div>
-        <div className="p-4 bg-surface-container-lowest rounded-xl border border-outline-variant/10">
-          <div className="text-label-sm text-on-surface-variant uppercase tracking-widest mb-1">Investment Horizon</div>
-          <div className="text-title-md font-bold text-on-surface">{sr?.time_horizon || dr?.investment_horizon || '—'}</div>
+        <div className="flex flex-col gap-1.5 p-3 rounded-lg bg-slate-50 border border-slate-100">
+          <span className="text-[10px] text-slate-400 uppercase font-mono tracking-wider">Time Horizon</span>
+          <span className="text-sm font-semibold text-slate-700 mt-1">
+            {sr?.time_horizon || dr?.investment_horizon || '—'}
+          </span>
         </div>
-        <div className="p-4 bg-surface-container-lowest rounded-xl border border-outline-variant/10">
-          <div className="text-label-sm text-on-surface-variant uppercase tracking-widest mb-1">Overall Risk</div>
-          <RiskBadge risk={risk?.overall_risk_rating || risk?.overall_risk} />
+        <div className="flex flex-col gap-1.5 p-3 rounded-lg bg-slate-50 border border-slate-100">
+          <span className="text-[10px] text-slate-400 uppercase font-mono tracking-wider">Overall Risk</span>
+          <div className="mt-1"><RiskBadge risk={risk?.overall_risk_rating || risk?.overall_risk} /></div>
         </div>
-        <div className="p-4 bg-surface-container-lowest rounded-xl border border-outline-variant/10">
-          <div className="text-label-sm text-on-surface-variant uppercase tracking-widest mb-1">Market Sentiment</div>
-          <SentimentBadge sentiment={rr?.sentiment} />
+        <div className="flex flex-col gap-1.5 p-3 rounded-lg bg-slate-50 border border-slate-100">
+          <span className="text-[10px] text-slate-400 uppercase font-mono tracking-wider">Sentiment</span>
+          <div className="mt-1"><SentimentBadge sentiment={rr?.sentiment} /></div>
         </div>
-      </div>
-
-      <div className="mt-4 pt-4 border-t border-outline-variant/20 flex flex-wrap gap-4 items-center justify-between text-label-sm text-on-surface-variant">
-        <span>Generated: {fmtDate(metadata?.completed_at)}</span>
-        {metadata?.execution_time_seconds != null && (
-          <span>Execution time: {metadata.execution_time_seconds.toFixed(1)}s</span>
-        )}
-        {(rr?.sources || []).length > 0 && (
-          <span>Sources: {rr!.sources!.length} URL(s)</span>
-        )}
       </div>
     </div>
   );

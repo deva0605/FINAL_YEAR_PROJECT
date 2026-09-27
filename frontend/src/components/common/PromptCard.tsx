@@ -9,7 +9,7 @@ export const PromptCard: React.FC<PromptCardProps> = ({ text, onClick }) => {
   return (
     <button
       onClick={onClick}
-      className="p-3 text-left bg-surface-container-low rounded-xl border border-outline-variant/20 hover:bg-surface-container-high hover:border-primary/40 transition-all text-sm text-on-surface-variant"
+      className="p-2.5 text-left bg-white rounded-md border border-slate-200 text-slate-600 hover:text-slate-900 hover:border-slate-300 transition-all shadow-xs text-xs font-medium"
     >
       {text}
     </button>

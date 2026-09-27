@@ -18,7 +18,7 @@ class LanguageAgent:
             api_key = os.getenv('GEMINI_API_KEY')
             if api_key:
                 genai.configure(api_key=api_key)
-                self.gemini_model = genai.GenerativeModel('gemini-2.5-pro')
+                self.gemini_model = genai.GenerativeModel('gemini-2.0-flash')
                 self.use_gemini = True
                 logger.info("Gemini Pro API initialized successfully")
             else:
