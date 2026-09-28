@@ -165,7 +165,7 @@ class QueryParser:
             api_key = os.getenv('GEMINI_API_KEY')
             if api_key:
                 genai.configure(api_key=api_key)
-                self.gemini_model = genai.GenerativeModel('gemini-2.0-flash')
+                self.gemini_model = genai.GenerativeModel('gemini-3.8-flash')
                 self.use_gemini = True
         except ImportError:
             logger.warning("google.generativeai not installed. Query parsing will fallback.")
