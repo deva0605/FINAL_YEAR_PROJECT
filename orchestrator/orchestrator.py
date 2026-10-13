@@ -23,6 +23,7 @@ from backend.workflow_orchestrator import DefaultWorkflowOrchestrator
 from backend.workflow_state import WorkflowState
 from backend.query_understanding import QueryParser, ParsedQuery
 from backend.ticker_resolver import TickerResolver
+from backend.nse_routes import router as nse_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -38,6 +39,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(nse_router)
 
 # Initialize the Research Agent
 research_agent = ResearchAgent()
