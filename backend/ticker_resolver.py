@@ -26,6 +26,10 @@ LOCAL_MAPPINGS = {
     'nvidia': 'NVDA',
     'meta': 'META',
     'amazon': 'AMZN',
+    'iex': 'IEX.NS',
+    'indian energy exchange': 'IEX.NS',
+    'indian energy exchange ltd.': 'IEX.NS',
+    'indian energy exchange ltd': 'IEX.NS',
 }
 
 class TickerResolver:
@@ -41,8 +45,10 @@ class TickerResolver:
         if lower_query in LOCAL_MAPPINGS:
             return LOCAL_MAPPINGS[lower_query]
             
+        clean_query = lower_query.replace(" ltd.", "").replace(" ltd", "").replace(" limited", "").replace(" inc.", "").replace(" inc", "").strip()
+            
         try:
-            url = f"https://query2.finance.yahoo.com/v1/finance/search?q={query}&quotesCount=1&newsCount=0"
+            url = f"https://query2.finance.yahoo.com/v1/finance/search?q={clean_query}&quotesCount=5&newsCount=0"
             headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
             response = requests.get(url, headers=headers, timeout=5)
             if response.status_code == 200:
