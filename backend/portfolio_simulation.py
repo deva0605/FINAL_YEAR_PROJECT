@@ -5,8 +5,6 @@ It is a scenario calculator, not a market forecast or investment recommendation.
 """
 from __future__ import annotations
 
-from typing import Literal
-
 from pydantic import BaseModel, Field, model_validator
 
 
