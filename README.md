@@ -222,6 +222,44 @@ http://localhost:5173
 
 ---
 
+## 📉 Portfolio Risk Simulation
+
+The portfolio simulation page adds deterministic scenario analysis to the multi-agent prototype. It applies explicit hypothetical percentage shocks to user-entered holdings and reports the starting portfolio value, estimated gain/loss, post-scenario value, and holding-level contribution.
+
+### Run a scenario
+
+1. Start the FastAPI backend with `uvicorn orchestrator.orchestrator:app --reload --port 8000`.
+2. Start the React app using the frontend instructions above.
+3. Open **Portfolio Simulation** from the left navigation.
+4. Edit the illustrative sample holdings and prices (they are **not live quotes**), choose a built-in stress/rally scenario or enter custom per-holding shocks, and run the simulation.
+
+API endpoint: `POST /simulation/portfolio-stress`.
+
+Example request:
+
+```json
+{
+  "scenario_name": "Market stress",
+  "cash": 1000,
+  "holdings": [
+    {"symbol": "AAPL", "quantity": 10, "current_price": 200, "shock_percent": -15},
+    {"symbol": "MSFT", "quantity": 5, "current_price": 420, "shock_percent": -10}
+  ]
+}
+```
+
+This prototype is a deterministic scenario calculator, not a forecast, VaR estimate, or investment recommendation. The shock values are user-supplied assumptions. Taxes, fees, liquidity, correlations, dividends, rebalancing, and market impact are not modelled. All holdings and cash must use the same currency.
+
+### Simulation tests
+
+Run the focused tests from the repository root:
+
+```bash
+python -m unittest testing.test_portfolio_simulation
+```
+
+---
+
 # 🤝 Contributing
 
 1. Fork the repository
