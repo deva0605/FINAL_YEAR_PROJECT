@@ -8,6 +8,7 @@ import { Decision } from './pages/Decision';
 import { Report } from './pages/Report';
 import { History } from './pages/History';
 import { Settings } from './pages/Settings';
+import { Simulation } from './pages/Simulation';
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
           <Route path="research" element={<Research />} />
           <Route path="strategies" element={<Strategies />} />
           <Route path="risk" element={<Risk />} />
+          <Route path="simulation" element={<Simulation />} />
           <Route path="decision" element={<Decision />} />
           <Route path="report" element={<Report />} />
           <Route path="history" element={<History />} />
