@@ -154,7 +154,7 @@ export const Simulation: React.FC = () => {
       <div className="mt-4 overflow-x-auto">
         <table className="w-full min-w-[720px] text-left text-sm">
           <thead><tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-            <th className="pb-3 pr-3">Symbol</th><th className="pb-3 pr-3">Quantity</th><th className="pb-3 pr-3">Price / share</th><th className="pb-3 pr-3">Shock (%)</th><th className="pb-3">Position value</th>
+            <th className="pb-3 pr-3">Symbol</th><th className="pb-3 pr-3">Quantity</th><th className="pb-3 pr-3">Price / share</th><th className="pb-3 pr-3">Shock (%)</th><th className="pb-3">Position value</th><th className="pb-3 pl-2"></th>
           </tr></thead>
           <tbody>
             {holdings.map((holding, index) => <tr key={index} className="border-b border-slate-100 last:border-0">
