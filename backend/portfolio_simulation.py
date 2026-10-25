@@ -5,20 +5,36 @@ It is a scenario calculator, not a market forecast or investment recommendation.
 """
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class Holding(BaseModel):
     symbol: str = Field(min_length=1, max_length=24)
-    quantity: float = Field(gt=0, le=1_000_000_000)
-    current_price: float = Field(gt=0, le=1_000_000_000)
-    shock_percent: float = Field(default=-10.0, ge=-100.0, le=100.0)
+    
+    @field_validator("symbol")
+    @classmethod
+    def normalize_symbol(cls, value: str) -> str:
+        symbol = value.strip().upper()
+        if not symbol:
+            raise ValueError("Symbol must contain a non-whitespace character")
+        return symbol
+    quantity: float = Field(gt=0, le=1_000_000_000, allow_inf_nan=False)
+    current_price: float = Field(gt=0, le=1_000_000_000, allow_inf_nan=False)
+    shock_percent: float = Field(default=-10.0, ge=-100.0, le=100.0, allow_inf_nan=False)
 
 
 class PortfolioSimulationRequest(BaseModel):
     holdings: list[Holding] = Field(min_length=1, max_length=100)
     scenario_name: str = Field(default="Custom stress scenario", min_length=1, max_length=80)
-    cash: float = Field(default=0.0, ge=0, le=1_000_000_000_000)
+    
+    @field_validator("scenario_name")
+    @classmethod
+    def normalize_scenario_name(cls, value: str) -> str:
+        name = value.strip()
+        if not name:
+            raise ValueError("Scenario name must contain a non-whitespace character")
+        return name
+    cash: float = Field(default=0.0, ge=0, le=1_000_000_000_000, allow_inf_nan=False)
 
     @model_validator(mode="after")
     def cap_portfolio_value(self):
