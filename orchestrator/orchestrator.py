@@ -24,6 +24,7 @@ from backend.workflow_state import WorkflowState
 from backend.query_understanding import QueryParser, ParsedQuery
 from backend.ticker_resolver import TickerResolver
 from backend.nse_routes import router as nse_router
+from backend.portfolio_simulation import PortfolioSimulationRequest, PortfolioSimulationResponse, simulate_portfolio
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -254,3 +255,13 @@ async def execute_workflow(data: dict):
     except Exception as e:
         logger.error(f"Error executing workflow: {str(e)}")
         return {"error": str(e)}
+
+@app.post(
+    "/simulation/portfolio-stress",
+    response_model=PortfolioSimulationResponse,
+    tags=["Portfolio Simulation"],
+    summary="Run a deterministic portfolio stress scenario",
+)
+async def portfolio_stress_simulation(request: PortfolioSimulationRequest) -> PortfolioSimulationResponse:
+    """Apply explicit hypothetical price shocks to a portfolio without executing trades."""
+    return simulate_portfolio(request)
