@@ -66,10 +66,12 @@ export const Simulation: React.FC = () => {
   );
 
   const updateHolding = (index: number, key: keyof HoldingInput, value: string) => {
+    setResult(null);
     setHoldings(current => current.map((holding, i) => i === index ? { ...holding, [key]: value } : holding));
   };
 
   const changeScenario = (value: Scenario) => {
+    setResult(null);
     setScenario(value);
     if (value !== 'custom') {
       setScenarioName(presets[value].label);
@@ -163,7 +165,7 @@ export const Simulation: React.FC = () => {
               <td className="py-3 pr-3"><input aria-label={`Holding ${index + 1} price`} type="number" min="0.000001" step="any" value={holding.price} onChange={e => updateHolding(index, 'price', e.target.value)} className="w-32 rounded-lg border border-slate-300 px-2.5 py-2" /></td>
               <td className="py-3 pr-3"><input aria-label={`Holding ${index + 1} shock`} type="number" min="-100" max="100" step="any" value={holding.shock} disabled={scenario !== 'custom'} onChange={e => updateHolding(index, 'shock', e.target.value)} className="w-28 rounded-lg border border-slate-300 px-2.5 py-2 disabled:bg-slate-100 disabled:text-slate-500" /></td>
               <td className="py-3 font-medium tabular-nums text-slate-700">{money(Math.max(0, Number(holding.quantity) || 0) * Math.max(0, Number(holding.price) || 0), currency)}</td>
-              <td className="py-3 pl-2"><button type="button" onClick={() => setHoldings(current => current.filter((_, i) => i !== index))} disabled={holdings.length === 1} aria-label={`Remove ${holding.symbol || 'holding'}`} className="rounded-md px-2 py-1 text-xs text-rose-600 hover:bg-rose-50 disabled:opacity-30">Remove</button></td>
+              <td className="py-3 pl-2"><button type="button" onClick={() => { setResult(null); setHoldings(current => current.filter((_, i) => i !== index)); }} disabled={holdings.length === 1} aria-label={`Remove ${holding.symbol || 'holding'}`} className="rounded-md px-2 py-1 text-xs text-rose-600 hover:bg-rose-50 disabled:opacity-30">Remove</button></td>
             </tr>)}
           </tbody>
         </table>
@@ -172,7 +174,7 @@ export const Simulation: React.FC = () => {
         <button type="button" onClick={addHolding} disabled={holdings.length >= 20} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40">+ Add holding</button>
         <div>
           <label className="mb-1 block text-xs font-medium text-slate-600" htmlFor="cash">Cash reserve</label>
-          <input id="cash" type="number" min="0" step="any" value={cash} onChange={e => setCash(e.target.value)} className="w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+          <input id="cash" type="number" min="0" step="any" value={cash} onChange={e => { setCash(e.target.value); setResult(null); }} className="w-40 rounded-lg border border-slate-300 px-3 py-2 text-sm" />
         </div>
       </div>
     </section>
@@ -191,7 +193,7 @@ export const Simulation: React.FC = () => {
       <div className="mt-4 flex flex-wrap items-end gap-3">
         <div className="min-w-[240px] flex-1">
           <label htmlFor="scenarioName" className="mb-1 block text-xs font-medium text-slate-600">Scenario label</label>
-          <input id="scenarioName" value={scenarioName} maxLength={80} onChange={e => setScenarioName(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+          <input id="scenarioName" value={scenarioName} maxLength={80} onChange={e => { setScenarioName(e.target.value); setResult(null); }} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
         </div>
         <button type="button" onClick={runSimulation} disabled={loading} className="rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-700 disabled:cursor-wait disabled:opacity-60">{loading ? 'Calculating…' : 'Run stress simulation'}</button>
       </div>
