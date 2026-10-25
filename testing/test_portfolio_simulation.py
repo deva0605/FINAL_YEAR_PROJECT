@@ -44,6 +44,12 @@ class PortfolioSimulationTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             Holding(symbol="AAPL", quantity=0, current_price=100, shock_percent=-10)
 
+    def test_normalizes_symbol_and_rejects_blank_symbol(self):
+        holding = Holding(symbol=" aapl ", quantity=1, current_price=100, shock_percent=-10)
+        self.assertEqual(holding.symbol, "AAPL")
+        with self.assertRaises(ValidationError):
+            Holding(symbol="   ", quantity=1, current_price=100, shock_percent=-10)
+
     def test_rejects_shock_outside_supported_range(self):
         with self.assertRaises(ValidationError):
             Holding(symbol="AAPL", quantity=1, current_price=100, shock_percent=-101)
