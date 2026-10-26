@@ -9,12 +9,28 @@ interface DataMetricProps {
   className?: string;
 }
 
-export const DataMetric: React.FC<DataMetricProps> = ({ label, value, sub, highlight, className }) => (
-  <div className={cn('flex flex-col gap-1 p-3 bg-white rounded-lg border border-slate-200/80 hover:border-slate-300 transition shadow-xs', className)}>
-    <span className="text-[10px] font-mono font-medium text-slate-400 uppercase">{label}</span>
-    <span className={cn('text-sm font-bold font-mono tabular-nums', highlight ? 'text-slate-900' : 'text-slate-700')}>
-      {value ?? '—'}
-    </span>
-    {sub && <span className="text-[10px] text-slate-400 font-mono">{sub}</span>}
-  </div>
+/** One cell of a MetricGrid. Missing values render as an em dash with an accessible "not available". */
+export const DataMetric: React.FC<DataMetricProps> = ({ label, value, sub, highlight, className }) => {
+  const missing = value == null || value === '';
+  return (
+    <div className={cn('flex flex-col gap-0.5 bg-white px-4 py-3', className)}>
+      <dt className="text-xs text-ink-muted">{label}</dt>
+      <dd className={cn('text-base tabular-nums', missing ? 'text-ink-faint' : highlight ? 'font-semibold text-ink' : 'font-medium text-ink')}>
+        {missing ? (
+          <>
+            <span aria-hidden="true">—</span>
+            <span className="sr-only">not available</span>
+          </>
+        ) : (
+          value
+        )}
+      </dd>
+      {sub && <div className="text-xs text-ink-muted">{sub}</div>}
+    </div>
+  );
+};
+
+/** Hairline-divided grid of metrics: denser and calmer than a box around every number. */
+export const MetricGrid: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className }) => (
+  <dl className={cn('grid gap-px overflow-hidden rounded-lg border border-line bg-line', className)}>{children}</dl>
 );

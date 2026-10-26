@@ -10,46 +10,49 @@ interface DecisionPanelProps {
 export const DecisionPanel: React.FC<DecisionPanelProps> = ({ report }) => {
   if (!report) return null;
 
+  const evidence = report.supporting_evidence || [];
+  const steps = report.next_steps || [];
+
   return (
-    <SectionCard title="Decision Engine" badge="Consensus">
-      <div className="flex flex-col md:flex-row gap-8 mb-6">
-        <div className="flex-1">
-          <div className="text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-2">Executive Summary</div>
-          <p className="text-sm text-slate-700 leading-relaxed">{report.overall_summary}</p>
+    <SectionCard id="decision" title="Decision" description="The combined view of research, strategy and risk.">
+      {report.overall_summary ? (
+        <p className="text-sm leading-relaxed text-ink-soft">{report.overall_summary}</p>
+      ) : (
+        <p className="text-sm text-ink-muted">No summary was provided for this decision.</p>
+      )}
+
+      {(evidence.length > 0 || steps.length > 0) && (
+        <div className="mt-5 grid grid-cols-1 gap-6 border-t border-line pt-5 md:grid-cols-2">
+          {evidence.length > 0 && (
+            <div>
+              <h3 className="mb-2.5 text-xs font-semibold text-ink">Supporting evidence</h3>
+              <ul className="space-y-2">
+                {evidence.map((ev, i) => (
+                  <li key={i} className="flex items-start gap-2.5 text-sm text-ink-soft">
+                    <span className="mt-2 h-1 w-1 flex-shrink-0 rounded-full bg-ink-faint" aria-hidden="true" />
+                    {ev}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {steps.length > 0 && (
+            <div>
+              <h3 className="mb-2.5 text-xs font-semibold text-ink">Recommended next steps</h3>
+              <ol className="space-y-2">
+                {steps.map((step, i) => (
+                  <li key={i} className="flex items-start gap-2.5 text-sm text-ink-soft">
+                    <span className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border border-line bg-canvas text-xs font-medium tabular-nums text-ink-muted">
+                      {i + 1}
+                    </span>
+                    {step}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
         </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50 rounded-xl border border-slate-100 p-5">
-        {(report.supporting_evidence || []).length > 0 && (
-          <div>
-            <div className="text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-3">Supporting Evidence</div>
-            <ul className="space-y-2.5">
-              {report.supporting_evidence!.map((ev, i) => (
-                <li key={i} className="flex items-start gap-2.5 text-xs text-slate-600">
-                  <span className="w-1.5 h-1.5 rounded-full bg-slate-300 mt-1.5 flex-shrink-0" />
-                  {ev}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {(report.next_steps || []).length > 0 && (
-          <div>
-            <div className="text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-3">Recommended Next Steps</div>
-            <ol className="space-y-2.5">
-              {report.next_steps!.map((step, i) => (
-                <li key={i} className="flex items-start gap-2.5 text-xs text-slate-600">
-                  <div className="text-[10px] font-mono text-slate-400 bg-white border border-slate-200 w-4 h-4 flex items-center justify-center rounded flex-shrink-0 mt-0.5">
-                    {i + 1}
-                  </div>
-                  {step}
-                </li>
-              ))}
-            </ol>
-          </div>
-        )}
-      </div>
+      )}
     </SectionCard>
   );
 };

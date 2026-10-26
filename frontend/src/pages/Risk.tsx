@@ -1,6 +1,10 @@
 import React from 'react';
+import { ShieldCheck } from 'lucide-react';
 import { useWorkflowStore } from '../store/useWorkflowStore';
 import { RiskPanel } from '../components/report/RiskPanel';
+import { PageHeader } from '../components/common/PageHeader';
+import { EmptyState } from '../components/common/EmptyState';
+import { AnalysisSourceNotice } from '../components/common/AnalysisSourceNotice';
 
 export const Risk: React.FC = () => {
   const { workflowState } = useWorkflowStore();
@@ -8,19 +12,17 @@ export const Risk: React.FC = () => {
 
   if (!report) {
     return (
-      <div className="flex flex-col items-center justify-center h-[50vh] text-slate-500">
-        <svg className="w-12 h-12 mb-4 opacity-50" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-        <h2 className="text-lg font-semibold text-slate-900">No Risk Assessment Data</h2>
-        <p className="text-sm">Run an analysis from the dashboard to generate a risk profile.</p>
-      </div>
+      <>
+        <PageHeader title="Risk profile" />
+        <EmptyState icon={<ShieldCheck className="h-5 w-5" />} title="No risk assessment yet" description="Run an analysis from the research workspace to generate a risk profile." />
+      </>
     );
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between mb-2">
-        <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Risk Profile</h2>
-      </div>
+    <div className="flex max-w-3xl flex-col gap-6">
+      <PageHeader title="Risk profile" description={workflowState?.research_report?.company} />
+      {workflowState && <AnalysisSourceNotice state={workflowState} />}
       <RiskPanel report={report} />
     </div>
   );

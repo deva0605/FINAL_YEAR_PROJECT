@@ -1,59 +1,65 @@
 import React from 'react';
+import { PageHeader } from '../components/common/PageHeader';
+import { Notice } from '../components/common/Notice';
+
+function Row({ title, hint, children, last }: { title: string; hint: string; children: React.ReactNode; last?: boolean }) {
+  return (
+    <div className={`flex flex-wrap items-center justify-between gap-3 py-4 ${last ? '' : 'border-b border-line'}`}>
+      <div>
+        <div className="text-sm font-medium text-ink">{title}</div>
+        <div className="text-xs text-ink-muted">{hint}</div>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+const selectClass = 'rounded-lg border border-line bg-white px-3 py-1.5 text-sm text-ink hover:border-line-strong disabled:opacity-60';
 
 export const Settings: React.FC = () => {
   return (
-    <div className="flex flex-col gap-6 max-w-2xl">
-      <h2 className="text-display-sm font-bold text-on-surface mb-2">Settings</h2>
-      
-      <div className="bg-surface-container-low p-6 rounded-xl border border-outline-variant/20">
-        <h3 className="text-title-lg font-bold text-on-surface mb-4">Account</h3>
-        <div className="flex flex-col gap-4">
-          <div className="flex justify-between items-center pb-4 border-b border-outline-variant/20">
-            <div>
-              <div className="font-bold">Plan</div>
-              <div className="text-sm text-on-surface-variant">Pro Analyst Plan</div>
-            </div>
-            <button className="px-4 py-2 bg-surface-container-high rounded-lg text-sm font-bold hover:bg-surface-variant">Manage</button>
-          </div>
-          
-          <div className="flex justify-between items-center">
-            <div>
-              <div className="font-bold">API Key</div>
-              <div className="text-sm text-on-surface-variant">Used for custom integrations</div>
-            </div>
-            <button className="px-4 py-2 bg-surface-container-high rounded-lg text-sm font-bold hover:bg-surface-variant">Reveal</button>
-          </div>
-        </div>
-      </div>
+    <div className="flex max-w-2xl flex-col gap-6">
+      <PageHeader title="Engine settings" />
 
-      <div className="bg-surface-container-low p-6 rounded-xl border border-outline-variant/20">
-        <h3 className="text-title-lg font-bold text-on-surface mb-4">Preferences</h3>
-        <div className="flex flex-col gap-4">
-          <div className="flex justify-between items-center pb-4 border-b border-outline-variant/20">
-            <div>
-              <div className="font-bold">Default Horizon</div>
-              <div className="text-sm text-on-surface-variant">Strategy agent default view</div>
-            </div>
-            <select className="px-3 py-2 bg-surface-container-lowest border border-outline-variant/30 rounded-lg text-sm">
-              <option>Short Term (1-3 Mo)</option>
-              <option selected>Medium Term (6-12 Mo)</option>
-              <option>Long Term (1-3 Yr)</option>
-            </select>
-          </div>
-          
-          <div className="flex justify-between items-center">
-            <div>
-              <div className="font-bold">Risk Tolerance</div>
-              <div className="text-sm text-on-surface-variant">Affects decision agent recommendations</div>
-            </div>
-            <select className="px-3 py-2 bg-surface-container-lowest border border-outline-variant/30 rounded-lg text-sm">
-              <option>Conservative</option>
-              <option selected>Balanced</option>
-              <option>Aggressive</option>
-            </select>
-          </div>
-        </div>
-      </div>
+      <Notice tone="neutral" title="Preview only">
+        These controls are not connected to the backend yet, so they do not affect the analysis.
+      </Notice>
+
+      <section aria-labelledby="account-heading" className="card px-5">
+        <h2 id="account-heading" className="pt-4 text-sm font-semibold text-ink">
+          Account
+        </h2>
+        <Row title="Plan" hint="Pro Analyst Plan">
+          <button type="button" disabled className="btn-secondary">
+            Manage
+          </button>
+        </Row>
+        <Row title="API key" hint="Used for custom integrations" last>
+          <button type="button" disabled className="btn-secondary">
+            Reveal
+          </button>
+        </Row>
+      </section>
+
+      <section aria-labelledby="prefs-heading" className="card px-5">
+        <h2 id="prefs-heading" className="pt-4 text-sm font-semibold text-ink">
+          Preferences
+        </h2>
+        <Row title="Default horizon" hint="Strategy agent default view">
+          <select aria-label="Default horizon" className={selectClass} defaultValue="medium" disabled>
+            <option value="short">Short term (1-3 months)</option>
+            <option value="medium">Medium term (6-12 months)</option>
+            <option value="long">Long term (1-3 years)</option>
+          </select>
+        </Row>
+        <Row title="Risk tolerance" hint="Affects decision agent recommendations" last>
+          <select aria-label="Risk tolerance" className={selectClass} defaultValue="balanced" disabled>
+            <option value="conservative">Conservative</option>
+            <option value="balanced">Balanced</option>
+            <option value="aggressive">Aggressive</option>
+          </select>
+        </Row>
+      </section>
     </div>
   );
 };

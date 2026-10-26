@@ -1,7 +1,8 @@
 import React from 'react';
 import { ResearchReport } from '../../types';
 import { SectionCard } from '../common/SectionCard';
-import { DataMetric } from '../common/DataMetric';
+import { DataMetric, MetricGrid } from '../common/DataMetric';
+import { Disclosure } from '../common/Disclosure';
 import { formatMoney } from '../../utils/currency';
 
 function fmtPct(val?: number | null): string {
@@ -23,17 +24,41 @@ export const MarketSnapshot: React.FC<MarketSnapshotProps> = ({ report }) => {
   const rsi = r?.rsi ?? ti?.rsi_14;
   const ma20 = ma?.['20d'] ?? ti?.moving_average_20;
   const ma50 = ma?.['50d'] ?? ti?.moving_average_50;
+  const notes = r?.market_data_warnings || [];
 
   return (
-    <SectionCard title="Market Snapshot" badge="Real-time">
-      <div className="grid grid-cols-2 gap-3">
-        <DataMetric label="52-Week High" value={high52 != null ? formatMoney(high52, r?.currency) : undefined} />
-        <DataMetric label="52-Week Low" value={low52 != null ? formatMoney(low52, r?.currency) : undefined} />
-        <DataMetric label="20d Moving Avg" value={ma20 != null ? formatMoney(ma20, r?.currency) : undefined} />
-        <DataMetric label="50d Moving Avg" value={ma50 != null ? formatMoney(ma50, r?.currency) : undefined} />
+    <SectionCard
+      id="market"
+      title="Market snapshot"
+      badge={r?.market_data_freshness ? `Data: ${r.market_data_freshness}` : undefined}
+      description="Price levels and momentum from the latest market data."
+    >
+      <MetricGrid className="grid-cols-2 sm:grid-cols-3">
+        <DataMetric label="52-week high" value={high52 != null ? formatMoney(high52, r?.currency) : undefined} />
+        <DataMetric label="52-week low" value={low52 != null ? formatMoney(low52, r?.currency) : undefined} />
         <DataMetric label="RSI (14)" value={rsi != null ? rsi.toFixed(1) : undefined} sub={rsi != null ? (rsi < 30 ? 'Oversold' : rsi > 70 ? 'Overbought' : 'Neutral') : undefined} />
-        <DataMetric label="Dividend Yield" value={r?.fundamentals?.dividend_yield != null ? fmtPct(r?.fundamentals?.dividend_yield) : undefined} />
-      </div>
+        <DataMetric label="20-day average" value={ma20 != null ? formatMoney(ma20, r?.currency) : undefined} />
+        <DataMetric label="50-day average" value={ma50 != null ? formatMoney(ma50, r?.currency) : undefined} />
+        <DataMetric label="Dividend yield" value={r?.fundamentals?.dividend_yield != null ? fmtPct(r?.fundamentals?.dividend_yield) : undefined} />
+      </MetricGrid>
+
+      {(notes.length > 0 || r?.market_data_source) && (
+        <Disclosure label="Data notes" count={notes.length} className="mt-4">
+          {r?.market_data_source && <p className="mb-2 text-xs text-ink-muted">Source: {r.market_data_source}</p>}
+          {notes.length > 0 ? (
+            <ul className="space-y-1.5">
+              {notes.map((note, i) => (
+                <li key={i} className="flex items-start gap-2 text-xs text-ink-soft">
+                  <span className="mt-1.5 h-1 w-1 flex-shrink-0 rounded-full bg-caution" aria-hidden="true" />
+                  {note}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-ink-muted">No data warnings were raised.</p>
+          )}
+        </Disclosure>
+      )}
     </SectionCard>
   );
 };

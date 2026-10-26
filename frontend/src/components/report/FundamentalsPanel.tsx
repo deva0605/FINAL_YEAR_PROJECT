@@ -1,7 +1,9 @@
 import React from 'react';
+import { ExternalLink } from 'lucide-react';
 import { ResearchReport, StrategyReport } from '../../types';
 import { SectionCard } from '../common/SectionCard';
-import { DataMetric } from '../common/DataMetric';
+import { DataMetric, MetricGrid } from '../common/DataMetric';
+import { ExpandableText } from '../common/ExpandableText';
 import { formatLargeAmount } from '../../utils/currency';
 
 interface FundamentalsPanelProps {
@@ -19,42 +21,48 @@ export const FundamentalsPanel: React.FC<FundamentalsPanelProps> = ({ report }) 
   const summary = r?.fundamental_summary || fund?.long_business_summary;
 
   // The tier is computed by the backend (currency-aware); null means no verified thresholds for this currency.
-  const TIER_LABELS = { mega: 'Mega-Cap', large: 'Large-Cap', mid: 'Mid-Cap', small: 'Small-Cap' } as const;
+  const TIER_LABELS = { mega: 'Mega-cap', large: 'Large-cap', mid: 'Mid-cap', small: 'Small-cap' } as const;
   function marketCapTier(cap?: number | null) {
-    if (!cap) return '—';
-    return r?.market_cap_tier ? TIER_LABELS[r.market_cap_tier] : 'Unclassified';
+    if (!cap) return undefined;
+    return r?.market_cap_tier ? TIER_LABELS[r.market_cap_tier] : 'Size tier not classified';
   }
 
   function valuationLabel(pe?: number | null) {
-    if (pe == null) return '—';
-    if (pe < 0) return 'Loss-Making';
+    if (pe == null) return undefined;
+    if (pe < 0) return 'Loss-making';
     if (pe < 15) return 'Undervalued';
-    if (pe < 30) return 'Fair Value';
+    if (pe < 30) return 'Fair value';
     if (pe < 50) return 'Stretched';
     return 'Overvalued';
   }
 
   return (
-    <SectionCard title="Fundamental Analysis" badge="Valuation">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-        <DataMetric label="Market Cap" value={marketCap != null ? formatLargeAmount(marketCap, r?.currency) : undefined} sub={marketCapTier(marketCap)} />
-        <DataMetric label="P/E Ratio" value={peRatio?.toFixed(1)} sub={valuationLabel(peRatio)} />
-        <DataMetric label="Price to Book" value={pb?.toFixed(2)} />
-        <DataMetric label="Beta" value={beta?.toFixed(2)} sub={beta != null ? (beta > 1.5 ? 'High Volatility' : beta < 0.5 ? 'Defensive' : 'Moderate') : undefined} />
-      </div>
+    <SectionCard id="fundamentals" title="Fundamental analysis" description="Size, valuation and business profile.">
+      <MetricGrid className="grid-cols-2 sm:grid-cols-4">
+        <DataMetric label="Market cap" value={marketCap != null ? formatLargeAmount(marketCap, r?.currency) : undefined} sub={marketCapTier(marketCap)} />
+        <DataMetric label="P/E ratio" value={peRatio?.toFixed(1)} sub={valuationLabel(peRatio)} />
+        <DataMetric label="Price to book" value={pb?.toFixed(2)} />
+        <DataMetric label="Beta" value={beta?.toFixed(2)} sub={beta != null ? (beta > 1.5 ? 'High volatility' : beta < 0.5 ? 'Defensive' : 'Moderate') : undefined} />
+      </MetricGrid>
 
       {summary && (
-        <div className="bg-slate-50 border border-slate-100 rounded-xl p-4">
-          <div className="text-[10px] font-mono text-slate-400 uppercase tracking-widest mb-2">Fundamental Summary</div>
-          <p className="text-xs text-slate-700 leading-relaxed">{summary}</p>
+        <div className="mt-5">
+          <h3 className="mb-1.5 text-xs font-semibold text-ink">Summary</h3>
+          <ExpandableText text={summary} threshold={420} />
         </div>
       )}
 
       {fund?.website && (
-        <div className="mt-4 flex justify-end">
-          <a href={fund.website} target="_blank" rel="noreferrer" className="text-xs font-mono text-slate-500 hover:text-slate-900 transition flex items-center gap-1.5">
-            <span>Corporate Website</span>
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" x2="21" y1="14" y2="3" /></svg>
+        <div className="mt-4">
+          <a
+            href={fund.website}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 rounded text-xs font-medium text-ink-muted hover:text-ink"
+          >
+            Corporate website
+            <ExternalLink className="h-3 w-3" aria-hidden="true" />
+            <span className="sr-only">(opens in a new tab)</span>
           </a>
         </div>
       )}

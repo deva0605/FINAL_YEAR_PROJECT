@@ -1,7 +1,14 @@
+import { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
+import { Loader2, Menu, Play, Presentation, Search } from 'lucide-react';
 import { useWorkflowStore } from '../../store/useWorkflowStore';
-import { executeWorkflow } from '../../api/workflow';
-import { useNavigate } from 'react-router-dom';
+import { checkHealth } from '../../api/workflow';
+import { useRunAnalysis } from '../../hooks/useRunAnalysis';
+import { cn } from '../../utils/cn';
+import { ExportPdfButton } from '../common/ExportPdfButton';
+import { failureOf } from '../../utils/workflow';
 
+// Static placeholder figures from the original design; they are NOT fetched from any market-data source.
 const TICKER_DATA = [
   { symbol: 'SENSEX', value: '79,842.10', change: '+0.84%', isGain: true },
   { symbol: 'NIFTY 50', value: '24,250.20', change: '+1.10%', isGain: true },
@@ -12,110 +19,147 @@ const TICKER_DATA = [
   { symbol: 'S&P 500', value: '5,648.40', change: '+0.45%', isGain: true },
 ];
 
-export function Header() {
-  const { query, setQuery, setLoading, setWorkflowState, setError } = useWorkflowStore();
-  const navigate = useNavigate();
+const PAGE_TITLES: Record<string, string> = {
+  '/': 'Intelligence Hub',
+  '/research': 'Deep Research',
+  '/strategies': 'Alpha Factor Lab',
+  '/risk': 'VaR Risk Models',
+  '/decision': 'Decision Engine',
+  '/report': 'Audit Trails',
+  '/history': 'Research History',
+  '/settings': 'Engine Settings',
+};
 
-  const handleSearchKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') runAnalysis(query);
-  };
+type Connection = 'checking' | 'online' | 'offline';
 
-  const runAnalysis = async (searchQuery: string) => {
-    if (!searchQuery.trim()) return;
-    navigate('/');
-    setLoading(true);
-    setError(null);
-    setWorkflowState(null);
-    try {
-      const result = await executeWorkflow(searchQuery.trim());
-      setWorkflowState(result);
-      useWorkflowStore.getState().updateCounters(result);
-    } catch (err: any) {
-      console.error("Backend Error:", err);
-      setError(err.message || "Failed to run analysis.");
-    } finally {
-      setLoading(false);
-    }
-  };
+/** Real reachability of the backend (GET /), re-checked every 30 seconds. */
+function useBackendStatus(): Connection {
+  const [status, setStatus] = useState<Connection>('checking');
+  useEffect(() => {
+    let cancelled = false;
+    const check = () =>
+      checkHealth()
+        .then(() => !cancelled && setStatus('online'))
+        .catch(() => !cancelled && setStatus('offline'));
+    check();
+    const timer = setInterval(check, 30000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
+  return status;
+}
+
+interface HeaderProps {
+  onOpenNav: () => void;
+}
+
+export function Header({ onOpenNav }: HeaderProps) {
+  const { query, setQuery, loading, workflowState, isPresentationMode, setPresentationMode } = useWorkflowStore();
+  const { pathname } = useLocation();
+  const runAnalysis = useRunAnalysis();
+  const connection = useBackendStatus();
+
+  // The dashboard shows its own large composer while it is empty, so the compact one is only needed elsewhere.
+  const heroVisible = pathname === '/' && !loading && (!workflowState || failureOf(workflowState) !== null);
+  const title = PAGE_TITLES[pathname] ?? 'FinAI Cloud';
+
+  // Ctrl/Cmd+K focuses the research input
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        document.getElementById('research-input')?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const connectionLabel =
+    connection === 'online' ? 'Backend connected' : connection === 'offline' ? 'Backend unreachable' : 'Checking backend…';
 
   return (
-    <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-surface-border">
-      {/* Command bar */}
-      <div className="px-6 py-2.5 flex items-center justify-between gap-4 border-b border-slate-200/80 bg-white">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 text-xs text-slate-500 font-medium">
-            <span className="hover:text-slate-900 cursor-pointer">Workspaces</span>
-            <span className="text-slate-300">/</span>
-            <span className="text-slate-900 font-semibold">Multi-Agent Syntheses</span>
-          </div>
-          <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            Live Stream
-          </span>
-        </div>
+    <header className="no-print sticky top-0 z-30 border-b border-line bg-white/90 backdrop-blur">
+      <div className="flex h-14 items-center gap-3 px-4 sm:px-6">
+        <button type="button" onClick={onOpenNav} className="btn-ghost -ml-2 p-2 lg:hidden" aria-label="Open navigation">
+          <Menu className="h-5 w-5" />
+        </button>
 
-        <div className="flex items-center gap-3">
-          {/* Search */}
-          <div className="w-80 relative flex items-center">
-            <span className="absolute left-3 text-slate-400 pointer-events-none">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <circle cx="11" cy="11" r="8" /><line x1="21" x2="16.65" y1="21" y2="16.65" />
-              </svg>
-            </span>
-            <input
-              className="w-full pl-8 pr-16 py-1.5 text-xs bg-slate-50 hover:bg-slate-100/70 border border-slate-200 rounded-md text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-slate-900 focus:border-slate-900 transition font-sans"
-              placeholder="Search ticker, thesis or analysis..."
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={handleSearchKey}
+        <h2 className="hidden whitespace-nowrap text-sm font-semibold text-ink sm:block">{title}</h2>
+
+        <div className="flex min-w-0 flex-1 items-center justify-end gap-2 sm:gap-3">
+          {!heroVisible && (
+            <form
+              role="search"
+              className="flex w-full max-w-md items-center gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                runAnalysis();
+              }}
+            >
+              <label htmlFor="research-input" className="sr-only">
+                Company or ticker to research
+              </label>
+              <div className="relative min-w-0 flex-1">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted" aria-hidden="true" />
+                <input
+                  id="research-input"
+                  type="text"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  disabled={loading}
+                  autoComplete="off"
+                  placeholder="Company or ticker, e.g. RELIANCE.NS"
+                  className="w-full rounded-lg border border-line bg-canvas py-1.5 pl-9 pr-3 text-sm text-ink placeholder-ink-muted transition-colors hover:border-line-strong focus:border-accent focus:bg-white disabled:opacity-60"
+                />
+              </div>
+              <button type="submit" disabled={loading || !query.trim()} className="btn-primary whitespace-nowrap">
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <Play className="h-3.5 w-3.5" aria-hidden="true" />}
+                <span className="hidden sm:inline">{loading ? 'Running…' : 'Run research'}</span>
+                <span className="sr-only sm:hidden">Run research</span>
+              </button>
+            </form>
+          )}
+
+          {workflowState?.research_report && <ExportPdfButton compact />}
+
+          <button
+            type="button"
+            onClick={() => setPresentationMode(!isPresentationMode)}
+            aria-pressed={isPresentationMode}
+            title="Show an animated agent walkthrough while the analysis runs"
+            className={cn('btn-secondary hidden md:inline-flex', isPresentationMode && 'border-accent-line bg-accent-soft text-accent-ink hover:bg-accent-soft')}
+          >
+            <Presentation className="h-4 w-4" aria-hidden="true" />
+            Present
+          </button>
+
+          <span
+            role="status"
+            title={connectionLabel}
+            className="hidden items-center gap-1.5 whitespace-nowrap text-xs text-ink-muted xl:flex"
+          >
+            <span
+              className={cn('h-2 w-2 rounded-full', connection === 'online' ? 'bg-accent' : connection === 'offline' ? 'bg-danger' : 'bg-ink-faint animate-subtle-pulse')}
+              aria-hidden="true"
             />
-            <kbd className="absolute right-2 px-1.5 py-0.5 text-[9px] font-mono text-slate-400 bg-white border border-slate-200 rounded shadow-xs">⌘K</kbd>
-          </div>
-
-          <div className="h-4 w-px bg-slate-200" />
-
-          {/* Controls */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => runAnalysis(query)}
-              className="px-2.5 py-1 text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 rounded-md border border-slate-900 transition flex items-center gap-1.5 shadow-xs"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <polyline points="9 18 15 12 9 6" />
-              </svg>
-              <span>Run Audit</span>
-            </button>
-
-            {/* Presentation Toggle */}
-            <button
-              onClick={() => useWorkflowStore.getState().setPresentationMode(!useWorkflowStore.getState().isPresentationMode)}
-              className="px-2.5 py-1 text-xs font-medium text-slate-700 hover:text-slate-900 hover:bg-slate-100 rounded-md border border-slate-200 transition flex items-center gap-1.5"
-            >
-              <svg className="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
-              </svg>
-              <span>Present</span>
-            </button>
-
-            {/* Notification bell */}
-            <button className="relative p-1.5 rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" />
-              </svg>
-              <span className="absolute top-1 right-1 w-1.5 h-1.5 bg-rose-500 rounded-full" />
-            </button>
-          </div>
+            {connectionLabel}
+          </span>
         </div>
       </div>
 
-      {/* Market ticker strip */}
-      <div className="bg-slate-50/70 px-6 py-1.5 flex items-center overflow-x-auto no-scrollbar gap-8 text-[11px] font-mono border-b border-slate-200/60">
+      {/* Market strip: compact and secondary. Figures are static placeholders, and labelled as such. */}
+      <div className="flex items-center gap-6 overflow-x-auto border-t border-line bg-canvas px-4 py-1 text-xs no-scrollbar sm:px-6" aria-label="Sample market figures">
+        <span className="flex-shrink-0 rounded border border-line bg-white px-1.5 text-[11px] font-medium text-ink-muted" title="These figures are static placeholders, not live market data">
+          Sample data
+        </span>
         {TICKER_DATA.map((t) => (
-          <div key={t.symbol} className="flex items-center gap-2 flex-shrink-0">
-            <span className="text-slate-500 font-semibold">{t.symbol}</span>
-            <span className="text-slate-900 font-bold tabular-nums">{t.value}</span>
-            <span className={`font-semibold tabular-nums ${t.isGain ? 'text-emerald-600' : 'text-rose-600'}`}>{t.change}</span>
+          <div key={t.symbol} className="flex flex-shrink-0 items-center gap-1.5 tabular-nums">
+            <span className="text-ink-muted">{t.symbol}</span>
+            <span className="font-medium text-ink-soft">{t.value}</span>
+            <span className={t.isGain ? 'text-accent-ink' : 'text-danger-ink'}>{t.change}</span>
           </div>
         ))}
       </div>

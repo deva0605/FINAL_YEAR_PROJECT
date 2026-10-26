@@ -1,49 +1,51 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { CheckCircle2, TriangleAlert } from 'lucide-react';
 import { AgentCard } from './AgentCard';
-import { cn } from '../../../utils/cn';
 
 const AGENTS = [
   {
     id: 'research',
-    name: 'Research Agent',
+    name: 'Research agent',
     icon: 'manage_search',
-    messages: ['Fetching Market Data...', 'Retrieving Financial Statements...', 'Reading Company Profile...', 'Fetching Historical Prices...', 'Collecting Market Metrics...', 'Reading Latest News...', 'Indexing Documents...'],
-    defaultDuration: 3500
+    messages: ['Fetching market data…', 'Retrieving financial statements…', 'Reading company profile…', 'Fetching historical prices…', 'Collecting market metrics…', 'Reading latest news…', 'Indexing documents…'],
+    defaultDuration: 3500,
   },
   {
     id: 'strategy',
-    name: 'Strategy Agent',
+    name: 'Strategy agent',
     icon: 'analytics',
-    messages: ['Analyzing Growth...', 'Evaluating Fundamentals...', 'Building Investment Thesis...', 'Generating Bull Case...', 'Generating Bear Case...', 'Estimating Return Potential...'],
-    defaultDuration: 3000
+    messages: ['Analyzing growth…', 'Evaluating fundamentals…', 'Building investment thesis…', 'Generating bull case…', 'Generating bear case…', 'Estimating return potential…'],
+    defaultDuration: 3000,
   },
   {
     id: 'risk',
-    name: 'Risk Agent',
+    name: 'Risk agent',
     icon: 'shield',
-    messages: ['Calculating Volatility...', 'Checking Liquidity...', 'Analyzing Valuation...', 'Evaluating News Risk...', 'Checking Sector Exposure...', 'Assessing Macroeconomic Risk...'],
-    defaultDuration: 2500
+    messages: ['Calculating volatility…', 'Checking liquidity…', 'Analyzing valuation…', 'Evaluating news risk…', 'Checking sector exposure…', 'Assessing macroeconomic risk…'],
+    defaultDuration: 2500,
   },
   {
     id: 'decision',
-    name: 'Decision Agent',
+    name: 'Decision agent',
     icon: 'gavel',
-    messages: ['Combining Agent Results...', 'Scoring Investment...', 'Calculating Confidence...', 'Generating Recommendation...', 'Preparing Explainable Report...'],
-    defaultDuration: 2500
-  }
+    messages: ['Combining agent results…', 'Scoring investment…', 'Calculating confidence…', 'Generating recommendation…', 'Preparing explainable report…'],
+    defaultDuration: 2500,
+  },
 ];
 
 interface PresentationModeProps {
   query: string;
   isApiComplete: boolean;
+  /** how the finished run ended; the closing screen must not claim success for a failed run */
+  outcome?: 'success' | 'failed';
   onPresentationComplete: () => void;
 }
 
-export const PresentationMode: React.FC<PresentationModeProps> = ({ query, isApiComplete, onPresentationComplete }) => {
-  const [currentStep, setCurrentStep] = useState<number>(-1); 
+export const PresentationMode: React.FC<PresentationModeProps> = ({ query, isApiComplete, outcome = 'success', onPresentationComplete }) => {
+  const [currentStep, setCurrentStep] = useState<number>(-1);
   const [typedQuery, setTypedQuery] = useState('');
-  
+
   useEffect(() => {
     if (currentStep !== -1) return;
     let i = 0;
@@ -62,11 +64,12 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({ query, isApi
     if (currentStep === -1 || currentStep >= 4) return;
     const agent = AGENTS[currentStep];
     const duration = isApiComplete ? 400 : agent.defaultDuration;
-    
+
     const timer = setTimeout(() => {
       if (currentStep === 3 && !isApiComplete) {
+        // the last step waits for the real response
       } else {
-        setCurrentStep(prev => prev + 1);
+        setCurrentStep((prev) => prev + 1);
       }
     }, duration);
     return () => clearTimeout(timer);
@@ -88,44 +91,36 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({ query, isApi
 
   const totalSteps = AGENTS.length;
   const progressPercent = currentStep === -1 ? 0 : currentStep === 4 ? 100 : Math.round((currentStep / totalSteps) * 100);
+  const failed = outcome === 'failed';
 
   return (
-    <div className="w-full max-w-2xl mx-auto py-10 flex flex-col gap-6">
-      <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
-        <div className="text-[10px] text-slate-400 font-mono uppercase tracking-widest mb-1.5 font-bold">Query Parse</div>
-        <h2 className="text-lg font-bold text-slate-900 tracking-tight leading-tight min-h-[1.75rem]">
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 py-6">
+      <div className="card px-5 py-4">
+        <div className="text-xs text-ink-muted">Your request</div>
+        <p className="mt-1 min-h-[1.75rem] text-lg font-medium leading-snug text-ink">
           {typedQuery}
-          {currentStep === -1 && <span className="animate-pulse ml-1 text-slate-400">|</span>}
-        </h2>
+          {currentStep === -1 && <span className="ml-0.5 animate-pulse text-ink-faint" aria-hidden="true">|</span>}
+        </p>
       </div>
 
-      <div className="bg-slate-50 rounded-xl p-6 border border-slate-200 shadow-inner flex flex-col gap-4 relative min-h-[350px] overflow-hidden">
-        <div className="flex justify-between text-[10px] font-mono font-bold text-slate-500 mb-1">
-          <span>Agent Synchronization</span>
-          <span>{progressPercent}%</span>
+      <div className="card relative min-h-[340px] overflow-hidden p-5" aria-busy={currentStep !== 4}>
+        <div className="mb-2 flex items-center justify-between text-xs text-ink-muted">
+          <span>Agent progress</span>
+          <span className="tabular-nums">{progressPercent}%</span>
         </div>
-        <div className="h-1 bg-slate-200 rounded-full overflow-hidden mb-2">
-          <motion.div 
-            className="h-full bg-emerald-500"
-            initial={{ width: 0 }}
-            animate={{ width: `${progressPercent}%` }}
-            transition={{ ease: "easeInOut", duration: 0.5 }}
-          />
+        <div className="mb-4 h-1 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progressPercent} aria-label="Agent progress">
+          <motion.div className="h-full bg-accent" initial={{ width: 0 }} animate={{ width: `${progressPercent}%` }} transition={{ ease: 'easeInOut', duration: 0.5 }} />
         </div>
 
-        <div className="flex flex-col gap-3 relative">
+        <ol className="relative flex flex-col gap-2.5">
           <AnimatePresence>
             {currentStep === 4 && (
-              <motion.div 
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="absolute inset-0 flex flex-col items-center justify-center bg-slate-50 z-10"
-              >
-                <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center mb-4 border border-emerald-200">
-                  <svg className="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
+              <motion.li initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="absolute inset-0 z-10 flex list-none flex-col items-center justify-center bg-white">
+                <div className={failed ? 'mb-3 flex h-11 w-11 items-center justify-center rounded-full border border-caution-line bg-caution-soft text-caution-ink' : 'mb-3 flex h-11 w-11 items-center justify-center rounded-full border border-accent-line bg-accent-soft text-accent-ink'}>
+                  {failed ? <TriangleAlert className="h-5 w-5" aria-hidden="true" /> : <CheckCircle2 className="h-5 w-5" aria-hidden="true" />}
                 </div>
-                <h2 className="text-sm font-bold font-mono text-slate-900 uppercase tracking-wide">Analysis Complete</h2>
-              </motion.div>
+                <h2 className="text-sm font-semibold text-ink">{failed ? 'The research could not be completed' : 'Analysis complete'}</h2>
+              </motion.li>
             )}
           </AnimatePresence>
 
@@ -143,8 +138,10 @@ export const PresentationMode: React.FC<PresentationModeProps> = ({ query, isApi
               />
             );
           })}
-        </div>
+        </ol>
       </div>
+
+      <p className="text-center text-xs text-ink-muted">Progress is indicative: the backend returns results once every agent has finished.</p>
     </div>
   );
 };

@@ -1,28 +1,30 @@
 import React from 'react';
+import { CheckCircle2, CircleDashed, Info, Loader2, XCircle } from 'lucide-react';
 import { cn } from '../../utils/cn';
+import { Tone, TONE_BADGE } from './tone';
+
+export type AgentStatus = 'waiting' | 'running' | 'completed' | 'fallback' | 'error';
 
 interface StatusChipProps {
-  status: 'waiting' | 'running' | 'completed' | 'error';
+  status: AgentStatus;
   label?: string;
 }
 
+const META: Record<AgentStatus, { text: string; tone: Tone; Icon: React.ComponentType<{ className?: string }> }> = {
+  waiting: { text: 'Waiting', tone: 'neutral', Icon: CircleDashed },
+  running: { text: 'Running', tone: 'caution', Icon: Loader2 },
+  completed: { text: 'Completed', tone: 'accent', Icon: CheckCircle2 },
+  fallback: { text: 'Completed (rule-based)', tone: 'caution', Icon: Info },
+  error: { text: 'Failed', tone: 'danger', Icon: XCircle },
+};
+
+/** Status is always conveyed by an icon and text, never by colour alone. */
 export const StatusChip: React.FC<StatusChipProps> = ({ status, label }) => {
-  const displayLabel = label || status.toUpperCase();
-  
+  const { text, tone, Icon } = META[status];
   return (
-    <div className={cn(
-      "px-2 py-0.5 text-[9px] font-mono font-medium rounded border tracking-wider uppercase inline-flex items-center gap-1.5 transition-colors",
-      status === 'completed' && "bg-emerald-50 text-emerald-700 border-emerald-200/60",
-      status === 'running' && "bg-amber-50 text-amber-700 border-amber-200/60",
-      status === 'waiting' && "bg-slate-50 text-slate-500 border-slate-200",
-      status === 'error' && "bg-rose-50 text-rose-700 border-rose-200/60"
-    )}>
-      {status === 'running' && (
-        <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-          <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-        </svg>
-      )}
-      {displayLabel}
-    </div>
+    <span className={cn('inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs font-medium', TONE_BADGE[tone])}>
+      <Icon className={cn('h-3.5 w-3.5', status === 'running' && 'animate-spin')} aria-hidden="true" />
+      {label || text}
+    </span>
   );
 };

@@ -72,6 +72,10 @@ export interface ResearchReport {
   technical_summary?: string;
   sentiment?: string;
   sources?: string[];
+  market_data_source?: string | null;
+  market_data_as_of?: string | null;
+  market_data_freshness?: string | null;
+  market_data_warnings?: string[];
   summary?: string;
   market_data?: MarketData[];
   context?: string[];
@@ -131,10 +135,20 @@ export interface WorkflowMetadata {
   errors?: string[];
 }
 
+export interface ParsedQuery {
+  original_query?: string;
+  companies?: string[];
+  tickers?: string[];
+  intent?: string;
+  time_horizon?: string;
+  generation?: GenerationInfo | null;
+}
+
 export interface WorkflowState {
   research_report?: ResearchReport;
   strategy_report?: StrategyReport;
   risk_report?: RiskReport;
   decision_report?: DecisionReport;
+  parsed_query?: ParsedQuery | null;
   metadata?: WorkflowMetadata;
 }
