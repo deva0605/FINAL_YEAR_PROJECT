@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, wait as wait_futures
 from dataclasses import dataclass, field
@@ -11,6 +12,7 @@ from typing import Any, Optional
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
+from agents.gemini_client import GenerationInfo
 from agents.language_agent import LanguageAgent
 from agents.retriever_agent import RetrieverAgent
 from data_ingestion.api_agent import APIAgent
@@ -81,6 +83,7 @@ class ResearchReport(BaseModel):
     revenue: Optional[float] = None
     currency: Optional[str] = None  # ISO code of the instrument's prices; None = could not be verified
     currency_source: Optional[str] = None
+    generation: Optional[GenerationInfo] = None  # whether the summaries came from the LLM or the fallback
     high_52_week: Optional[float] = None
     low_52_week: Optional[float] = None
     moving_averages: dict = Field(default_factory=dict)
@@ -134,6 +137,8 @@ class ResearchAgent:
         self.api_agent = api_agent or APIAgent()
         self.scraping_agent = scraping_agent or ScrapingAgent()
         self.retriever_agent = retriever_agent or RetrieverAgent()
+        # the retriever keeps its index on the instance, and requests now run in parallel threads
+        self._retrieval_lock = threading.Lock()
         self.language_agent = language_agent or LanguageAgent()
         self._nse_service = nse_service
         if nse_budget_seconds is None:
@@ -201,6 +206,7 @@ class ResearchAgent:
             revenue=None,
             currency=currency,
             currency_source=currency_source,
+            generation=summaries.get("generation"),
             high_52_week=technical_indicators.high_52_week,
             low_52_week=technical_indicators.low_52_week,
             moving_averages={"20d": technical_indicators.moving_average_20, "50d": technical_indicators.moving_average_50},
@@ -414,9 +420,10 @@ class ResearchAgent:
         if not articles:
             return []
         documents = [article.model_dump() for article in articles]
-        self.retriever_agent.index_documents(documents)
         query = f"{company_name} {symbol}"
-        context_docs = self.retriever_agent.retrieve(query, k=3)
+        with self._retrieval_lock:  # index + retrieve must be atomic, or another request's news leaks into this context
+            self.retriever_agent.index_documents(documents)
+            context_docs = self.retriever_agent.retrieve(query, k=3)
         context: list[str] = []
         for doc in context_docs:
             if hasattr(doc, "page_content"):

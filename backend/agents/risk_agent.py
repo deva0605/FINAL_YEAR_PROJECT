@@ -5,6 +5,7 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from agents.gemini_client import GenerationInfo, generation_info, meaningful_text, reject_llm_output
 from agents.language_agent import LanguageAgent
 from backend.agents.research_agent import ResearchReport
 from backend.currency import currency_prompt_note
@@ -33,6 +34,22 @@ class RiskReport(BaseModel):
     weaknesses: list[str] = Field(default_factory=list)
     recommendations: list[str] = Field(default_factory=list)
     reasons: list[str] = Field(default_factory=list)
+    generation: Optional[GenerationInfo] = None  # LLM or deterministic fallback, and why
+
+
+def _risk_output_problem(generated: "RiskReport") -> Optional[str]:
+    """Why an LLM risk assessment is unusable (None when it is fine). Mirrors what the Risk panel displays."""
+    missing = [name for name in ("volatility", "liquidity", "valuation", "financial_risk", "news_risk",
+                                 "macro_risk", "overall_risk_rating")
+               if not meaningful_text(getattr(generated, name))]
+    if missing:
+        return "risk assessment missing or empty: " + ", ".join(missing)
+    score = generated.risk_score
+    if score is None or isinstance(score, bool) or not 0 <= score <= 100:
+        return f"risk_score missing or outside 0-100: {score!r}"
+    if not any(meaningful_text(item) for item in generated.reasons + generated.weaknesses + generated.recommendations):
+        return "risk assessment has no reasons, weaknesses or recommendations"
+    return None
 
 
 class RiskRequest(BaseModel):
@@ -56,6 +73,7 @@ class RiskAgent:
 
         llm_risk = self._generate_with_llm(report)
         risk_report = llm_risk or self._build_rule_based_risk(report)
+        risk_report.generation = generation_info(self.language_agent, used_llm=llm_risk is not None)
 
         if workflow_state is not None:
             workflow_state.risk_report = risk_report
@@ -90,7 +108,12 @@ class RiskAgent:
             payload = self.language_agent.extract_json(raw)
             if payload is None:
                 return None
-            return RiskReport.model_validate(payload)
+            generated = RiskReport.model_validate(payload)
+            problem = _risk_output_problem(generated)
+            if problem:
+                reject_llm_output(self.language_agent, problem)
+                return None
+            return generated
         except Exception as exc:
             logger.warning("LLM risk generation failed: %s", exc)
             return None

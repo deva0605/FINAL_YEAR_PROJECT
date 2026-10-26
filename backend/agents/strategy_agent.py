@@ -5,6 +5,7 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from agents.gemini_client import GenerationInfo, generation_info, meaningful_text, reject_llm_output
 from agents.language_agent import LanguageAgent
 from backend.agents.research_agent import ResearchReport
 from backend.currency import currency_prompt_note, format_money
@@ -32,6 +33,20 @@ class StrategyReport(BaseModel):
     reasoning: str = ""
     catalysts: list[str] = Field(default_factory=list)
     currency: Optional[str] = None  # currency of entry_zone / exit_zone / target; None = unverified
+    generation: Optional[GenerationInfo] = None  # LLM or deterministic fallback, and why
+
+
+def _strategy_output_problem(payload: dict, generated: "StrategyReport") -> Optional[str]:
+    """Why an LLM strategy is unusable (None when it is fine). Mirrors what the Strategy panel displays."""
+    missing = [name for name in ("suggested_strategy", "entry_zone", "exit_zone", "target")
+               if not meaningful_text(getattr(generated, name))]
+    if missing:
+        return "strategy missing or empty: " + ", ".join(missing)
+    if not (meaningful_text(generated.bull_thesis) or meaningful_text(generated.bear_thesis)):
+        return "strategy has neither a bull nor a bear thesis"
+    if "confidence" not in payload:  # the schema default (0.0) would otherwise pose as a real confidence
+        return "strategy missing confidence"
+    return None
 
 
 class StrategyRequest(BaseModel):
@@ -60,6 +75,7 @@ class StrategyAgent:
 
         llm_strategy = self._generate_with_llm(report, time_horizon)
         strategy_report = llm_strategy or self._build_rule_based_strategy(report, time_horizon)
+        strategy_report.generation = generation_info(self.language_agent, used_llm=llm_strategy is not None)
         strategy_report.currency = report.currency  # never let generated text redefine the verified currency
 
         if workflow_state is not None:
@@ -95,7 +111,12 @@ class StrategyAgent:
             payload = self.language_agent.extract_json(raw)
             if payload is None:
                 return None
-            return StrategyReport.model_validate(payload)
+            generated = StrategyReport.model_validate(payload)
+            problem = _strategy_output_problem(payload, generated)
+            if problem:
+                reject_llm_output(self.language_agent, problem)
+                return None
+            return generated
         except Exception as exc:
             logger.warning("LLM strategy generation failed: %s", exc)
             return None

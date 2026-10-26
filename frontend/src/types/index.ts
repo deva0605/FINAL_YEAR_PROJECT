@@ -42,7 +42,14 @@ export interface NewsArticle {
   publish_date?: string;
 }
 
+export interface GenerationInfo {
+  source: 'llm' | 'fallback';
+  model?: string | null; // Gemini model, when source is 'llm'
+  reason?: string | null; // why the fallback was used, when source is 'fallback'
+}
+
 export interface ResearchReport {
+  generation?: GenerationInfo | null;
   currency?: string | null;
   currency_source?: string | null;
   market_cap_tier?: 'mega' | 'large' | 'mid' | 'small' | null; // null = unclassified
@@ -73,6 +80,7 @@ export interface ResearchReport {
 }
 
 export interface StrategyReport {
+  generation?: GenerationInfo | null;
   currency?: string | null;
   bull_thesis?: string;
   bear_thesis?: string;
@@ -87,6 +95,7 @@ export interface StrategyReport {
 }
 
 export interface RiskReport {
+  generation?: GenerationInfo | null;
   overall_risk?: string;
   overall_risk_rating?: string;
   risk_score?: number;
@@ -102,6 +111,7 @@ export interface RiskReport {
 }
 
 export interface DecisionReport {
+  generation?: GenerationInfo | null;
   currency?: string | null;
   recommendation?: string;
   confidence?: number;

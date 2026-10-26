@@ -182,7 +182,7 @@ class PromptWiringTests(unittest.TestCase):
         prompts = {}
 
         class FakeModel:
-            def generate_content(self, prompt):
+            def generate_content(self, prompt, **kwargs):
                 prompts["language"] = prompt
                 return type("R", (), {"text": '{"fundamental_summary": "a", "technical_summary": "b", "sentiment": "Neutral"}'})()
 

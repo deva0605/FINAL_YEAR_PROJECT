@@ -2,7 +2,20 @@ import os
 import json
 import re
 import logging
+import threading
 from typing import Dict, Any, Optional
+
+from agents.gemini_client import (
+    GeminiError,
+    GeminiSettings,
+    GenerationInfo,
+    INVALID_RESPONSE,
+    OK,
+    UNKNOWN,
+    create_model,
+    generate_text,
+    meaningful_text,
+)
 
 from backend.currency import currency_prompt_note, format_large_amount, format_money
 from backend.market_cap import classify_market_cap, tier_prompt_note, unclassified_reason
@@ -12,37 +25,80 @@ logger = logging.getLogger(__name__)
 
 
 class LanguageAgent:
+    # class-level defaults so subclasses/tests that skip __init__ still behave
+    settings: Optional[GeminiSettings] = None
+    model_name: Optional[str] = None
+    unavailable_reason: Optional[str] = "llm_unavailable"  # why use_gemini is False
+
     def __init__(self):
         self.use_gemini = False
         self.gemini_model = None
+        self.settings = GeminiSettings.from_env()
+        self.model_name = self.settings.model
 
+        self.gemini_model, self.unavailable_reason = create_model(self.settings)
+        if self.gemini_model is not None:
+            self.use_gemini = True
+            logger.info("Gemini initialized (model=%s)", self.model_name)
+        else:
+            logger.info("Gemini unavailable (%s) — will use rule-based analysis.", self.unavailable_reason)
+
+    # ------------------------------------------------------------------
+    # LLM status of the most recent call on this thread (read by the agents to explain a fallback)
+    # ------------------------------------------------------------------
+
+    def _local(self) -> threading.local:
+        local = self.__dict__.get("_status_local")
+        if local is None:
+            local = self.__dict__.setdefault("_status_local", threading.local())
+        return local
+
+    def llm_status(self) -> Optional[str]:
+        return getattr(self._local(), "status", None)
+
+    def set_llm_status(self, status: str) -> None:
+        self._local().status = status
+
+    def _call_gemini(self, prompt: str) -> str:
+        """Bounded Gemini call (see agents/gemini_client.py); records the outcome; raises GeminiError."""
         try:
-            import google.generativeai as genai
-            api_key = os.getenv('GEMINI_API_KEY')
-            if api_key:
-                genai.configure(api_key=api_key)
-                self.gemini_model = genai.GenerativeModel('gemini-3.8-flash')
-                self.use_gemini = True
-                logger.info("Gemini Pro API initialized successfully")
-            else:
-                logger.info("GEMINI_API_KEY not found — will use rule-based analysis.")
-        except ImportError:
-            logger.info("google-generativeai not installed — will use rule-based analysis.")
-        except Exception as e:
-            logger.warning(f"Could not initialize Gemini: {str(e)}")
+            text = generate_text(self.gemini_model, prompt, self.settings)
+        except GeminiError as exc:
+            self.set_llm_status(exc.kind)
+            raise
+        self.set_llm_status(OK)
+        return text
 
     def generate_research_summaries(self, symbol, company_name, context, technical_indicators, fundamentals, earnings, currency=None) -> Dict[str, Any]:
         """
         Generate fundamental/technical summaries and sentiment.
         Falls back to deterministic rule-based generation if LLM unavailable.
         """
+        reason = self.unavailable_reason
         if self.use_gemini and self.gemini_model:
             try:
                 return self._generate_with_gemini(symbol, company_name, context, technical_indicators, fundamentals, earnings, currency)
-            except Exception as e:
-                logger.warning(f"Gemini failed ({e}) — switching to rule-based summaries.")
+            except GeminiError as e:
+                logger.warning("Gemini failed (%s) — switching to rule-based summaries.", e.kind)
+                reason = e.kind
+            except Exception as e:  # noqa: BLE001 - never let LLM trouble fail the research request
+                logger.warning("Gemini failed unexpectedly (%s) — switching to rule-based summaries.", str(e)[:200])
+                reason = UNKNOWN
 
-        return self._generate_rule_based_summaries(symbol, company_name, technical_indicators, fundamentals, earnings, currency)
+        return self._rule_based_with_generation(
+            GenerationInfo.fallback(reason), symbol, company_name, technical_indicators, fundamentals, earnings, currency
+        )
+
+    @staticmethod
+    def _normalise_sentiment(value) -> str:
+        """The LLM's sentiment if it is Bullish / Bearish / Neutral (any case); otherwise the neutral default."""
+        label = str(value).strip().capitalize() if isinstance(value, str) else ""
+        return label if label in ("Bullish", "Bearish", "Neutral") else "Neutral"
+
+    def _rule_based_with_generation(self, generation, symbol, company_name, technical_indicators, fundamentals, earnings, currency):
+        summaries = self._generate_rule_based_summaries(symbol, company_name, technical_indicators, fundamentals, earnings, currency)
+        summaries["generation"] = generation.model_dump()
+        return summaries
 
     # ------------------------------------------------------------------
     # LLM path
@@ -71,27 +127,23 @@ Return a strictly valid JSON object with the following keys:
 
 Output ONLY valid JSON without markdown blocks.
 """
-        response = self.gemini_model.generate_content(prompt)
-        raw_text = (response.text or "").strip() if response else ""
+        raw_text = self._call_gemini(prompt)
+        data = self.extract_json(raw_text)
 
-        cleaned = re.sub(r"^```(?:json)?", "", raw_text, flags=re.IGNORECASE).strip()
-        cleaned = re.sub(r"```$", "", cleaned).strip()
-
-        data = None
-        try:
-            data = json.loads(cleaned)
-        except json.JSONDecodeError:
-            match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
-            if match:
-                data = json.loads(match.group(0))
-
-        if data:
+        fundamental = data.get("fundamental_summary") if isinstance(data, dict) else None
+        technical = data.get("technical_summary") if isinstance(data, dict) else None
+        if meaningful_text(fundamental) or meaningful_text(technical):  # at least one real summary
             return {
-                "fundamental_summary": data.get("fundamental_summary", ""),
-                "technical_summary": data.get("technical_summary", ""),
-                "sentiment": data.get("sentiment", "Neutral"),
+                "fundamental_summary": fundamental if meaningful_text(fundamental) else "",
+                "technical_summary": technical if meaningful_text(technical) else "",
+                "sentiment": self._normalise_sentiment(data.get("sentiment")),
+                "generation": GenerationInfo.llm(self.model_name).model_dump(),
             }
-        return self._generate_rule_based_summaries(symbol, company_name, technical_indicators, fundamentals, earnings, currency)
+        logger.warning("Gemini returned no usable summaries — using rule-based summaries.")
+        self.set_llm_status(INVALID_RESPONSE)
+        return self._rule_based_with_generation(
+            GenerationInfo.fallback(INVALID_RESPONSE), symbol, company_name, technical_indicators, fundamentals, earnings, currency
+        )
 
     # ------------------------------------------------------------------
     # Rule-based path
@@ -235,10 +287,13 @@ Output ONLY valid JSON without markdown blocks.
         if not self.use_gemini or not self.gemini_model:
             return None
         try:
-            response = self.gemini_model.generate_content(prompt)
-            return (response.text or "").strip() if response else None
-        except Exception as e:
-            logger.warning("LLM call failed: %s", e)
+            return self._call_gemini(prompt)
+        except GeminiError as e:
+            logger.warning("LLM call failed (%s): %s", e.kind, e)
+            return None
+        except Exception as e:  # noqa: BLE001
+            self.set_llm_status(UNKNOWN)
+            logger.warning("LLM call failed unexpectedly: %s", str(e)[:200])
             return None
 
     def extract_json(self, raw_text: str) -> Optional[dict]:
@@ -247,12 +302,16 @@ Output ONLY valid JSON without markdown blocks.
         cleaned = re.sub(r"```$", "", cleaned).strip()
 
         try:
-            return json.loads(cleaned)
+            parsed = json.loads(cleaned)
         except json.JSONDecodeError:
             match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
-            if not match:
-                return None
-            try:
-                return json.loads(match.group(0))
-            except json.JSONDecodeError:
-                return None
+            parsed = None
+            if match:
+                try:
+                    parsed = json.loads(match.group(0))
+                except json.JSONDecodeError:
+                    parsed = None
+        if not isinstance(parsed, dict):  # callers expect a JSON object
+            self.set_llm_status(INVALID_RESPONSE)
+            return None
+        return parsed

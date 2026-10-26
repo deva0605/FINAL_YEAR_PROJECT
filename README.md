@@ -210,6 +210,9 @@ http://localhost:5173
 | Variable | Description |
 |----------|-------------|
 | `GEMINI_API_KEY` | Google Gemini API Key |
+| `GEMINI_MODEL` | Optional. Gemini model name (default `gemini-3.8-flash`) |
+| `GEMINI_MAX_RETRIES` / `GEMINI_RETRY_BASE_SECONDS` / `GEMINI_RETRY_MAX_SECONDS` | Optional. Bounded retry policy for HTTP 429 and transient errors (defaults 2 / 1.0 / 15; allowed ranges: integer 0-5, 0-60, 0-120; the base delay is lowered to the max if larger) |
+| `GEMINI_REQUEST_TIMEOUT_SECONDS` / `GEMINI_TOTAL_BUDGET_SECONDS` | Optional. Per-request timeout and hard total time budget per call (defaults 20 / 45; allowed ranges: >0 to 120 and >0 to 600). Non-finite or invalid values are ignored with a log warning; values above a maximum are clamped |
 
 ---
 

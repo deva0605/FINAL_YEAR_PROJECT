@@ -100,7 +100,7 @@ async def health_check():
     return {"status": "healthy", "message": "Market Intelligence API is running"}
 
 @app.get("/retrieve/retrieve")
-async def retrieve(query: str, symbols: Optional[str] = None):
+def retrieve(query: str, symbols: Optional[str] = None):
     try:
         logger.info(f"Processing retrieve request for query: {query}")
         
@@ -144,7 +144,7 @@ async def retrieve(query: str, symbols: Optional[str] = None):
         return {"error": str(e)}
 
 @app.post("/analyze/analyze")
-async def analyze(data: dict):
+def analyze(data: dict):
     try:
         logger.info("Processing analyze request")
 
@@ -166,7 +166,7 @@ async def analyze(data: dict):
         return {"error": str(e)}
 
 @app.post("/strategy/strategy")
-async def strategy(request: StrategyRequest):
+def strategy(request: StrategyRequest):
     try:
         logger.info("Processing strategy request")
         workflow_state = WorkflowState(research_report=request.research_report)
@@ -180,7 +180,7 @@ async def strategy(request: StrategyRequest):
         return {"error": str(e)}
 
 @app.post("/risk/risk")
-async def risk(request: RiskRequest):
+def risk(request: RiskRequest):
     try:
         logger.info("Processing risk request")
         workflow_state = WorkflowState(research_report=request.research_report)
@@ -195,7 +195,7 @@ async def risk(request: RiskRequest):
 
 
 @app.post("/decision/decision")
-async def decision(data: dict):
+def decision(data: dict):
     try:
         payload = data or {}
         research = payload.get("research_report")
@@ -219,7 +219,7 @@ async def decision(data: dict):
 
 
 @app.post("/workflow/execute")
-async def execute_workflow(data: dict):
+def execute_workflow(data: dict):
     try:
         query = (data.get("symbol") or data.get("data", {}).get("symbol") or DEFAULT_SYMBOLS[0]).strip()
         logger.info(f"User Query: {query}")

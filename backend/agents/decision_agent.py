@@ -5,6 +5,7 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from agents.gemini_client import GenerationInfo, generation_info, meaningful_text, reject_llm_output
 from agents.language_agent import LanguageAgent
 from backend.currency import currency_prompt_note, format_money
 from backend.market_cap import tier_prompt_note
@@ -28,6 +29,23 @@ class DecisionReport(BaseModel):
     next_steps: list[str] = Field(default_factory=list)
     investment_horizon: str = ""
     currency: Optional[str] = None  # currency of any amounts quoted above; None = unverified
+    generation: Optional[GenerationInfo] = None  # LLM or deterministic fallback, and why
+
+
+ALLOWED_RECOMMENDATIONS = ("BUY", "HOLD", "SELL")
+
+
+def _decision_output_problem(payload: dict, generated: "DecisionReport") -> Optional[str]:
+    """Why an LLM decision is unusable (None when it is fine). Normalises the recommendation's case."""
+    recommendation = str(generated.recommendation).strip().upper()
+    if recommendation not in ALLOWED_RECOMMENDATIONS:
+        return f"recommendation {generated.recommendation!r} is not one of BUY, HOLD, SELL"
+    generated.recommendation = recommendation
+    if "confidence" not in payload:  # the schema default (0.0) would otherwise pose as a real confidence
+        return "decision missing confidence"
+    if not (meaningful_text(generated.overall_summary) or meaningful_text(generated.reasoning)):
+        return "decision has neither an overall summary nor reasoning"
+    return None
 
 
 class DecisionAgent:
@@ -47,6 +65,7 @@ class DecisionAgent:
 
         llm_decision = self._generate_with_llm(workflow_state)
         decision_report = llm_decision or self._build_rule_based_decision(workflow_state)
+        decision_report.generation = generation_info(self.language_agent, used_llm=llm_decision is not None)
         decision_report.currency = getattr(workflow_state.research_report, "currency", None)
 
         if workflow_state is not None:
@@ -91,7 +110,12 @@ class DecisionAgent:
             payload = self.language_agent.extract_json(raw)
             if payload is None:
                 return None
-            return DecisionReport.model_validate(payload)
+            generated = DecisionReport.model_validate(payload)
+            problem = _decision_output_problem(payload, generated)
+            if problem:
+                reject_llm_output(self.language_agent, problem)
+                return None
+            return generated
         except Exception as exc:
             logger.warning("LLM decision generation failed: %s", exc)
             return None
