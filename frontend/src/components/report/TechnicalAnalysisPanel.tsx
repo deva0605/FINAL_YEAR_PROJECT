@@ -2,6 +2,7 @@ import React from 'react';
 import { ResearchReport } from '../../types';
 import { SectionCard } from '../common/SectionCard';
 import { SentimentBadge } from '../common/Badges';
+import { formatMoney } from '../../utils/currency';
 
 interface TechnicalAnalysisPanelProps {
   report?: ResearchReport;
@@ -34,9 +35,9 @@ export const TechnicalAnalysisPanel: React.FC<TechnicalAnalysisPanelProps> = ({ 
                 <div className="absolute top-0 bottom-0 left-0 bg-slate-900 rounded-full" style={{ width: `${positionPct}%` }} />
               </div>
               <div className="flex justify-between mt-1.5 text-[9px] font-mono text-slate-400">
-                <span>${low52?.toFixed(0)}</span>
+                <span>{formatMoney(low52, r?.currency, 0)}</span>
                 <span className="text-slate-900 font-bold">{positionPct.toFixed(0)}%</span>
-                <span>${high52?.toFixed(0)}</span>
+                <span>{formatMoney(high52, r?.currency, 0)}</span>
               </div>
             </>
           ) : <span className="text-xs text-slate-400">—</span>}

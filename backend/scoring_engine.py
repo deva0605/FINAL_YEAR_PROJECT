@@ -9,6 +9,9 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional, List
 
+from backend.currency import format_large_amount, format_money
+from backend.market_cap import classify_market_cap, unclassified_reason
+
 logger = logging.getLogger(__name__)
 
 BULLISH_KEYWORDS = [
@@ -135,6 +138,7 @@ class ScoringEngine:
         market_cap = data.get("market_cap")
         eps = data.get("eps")
         revenue = data.get("revenue")
+        currency = data.get("currency")
 
         if pe_ratio is not None:
             if pe_ratio < 0:
@@ -156,30 +160,35 @@ class ScoringEngine:
             reasons.append("P/E ratio unavailable.")
 
         if market_cap is not None:
-            if market_cap >= 200e9:
+            tier = classify_market_cap(market_cap, currency)
+            if tier == "mega":
                 score += 10
-                reasons.append(f"Mega-cap company (${market_cap/1e9:.0f}B market cap). High financial stability.")
-            elif market_cap >= 10e9:
+                reasons.append(f"Mega-cap company ({format_large_amount(market_cap, currency)} market cap). High financial stability.")
+            elif tier == "large":
                 score += 5
-                reasons.append(f"Large-cap company (${market_cap/1e9:.0f}B market cap).")
-            elif market_cap >= 2e9:
-                reasons.append(f"Mid-cap company (${market_cap/1e9:.1f}B market cap).")
-            else:
+                reasons.append(f"Large-cap company ({format_large_amount(market_cap, currency)} market cap).")
+            elif tier == "mid":
+                reasons.append(f"Mid-cap company ({format_large_amount(market_cap, currency)} market cap).")
+            elif tier == "small":
                 score -= 5
-                reasons.append(f"Small-cap company (${market_cap/1e6:.0f}M market cap). Higher risk profile.")
+                reasons.append(f"Small-cap company ({format_large_amount(market_cap, currency)} market cap). Higher risk profile.")
+            else:  # unclassified: no score adjustment rather than a guessed tier
+                reasons.append(
+                    f"Market cap of {format_large_amount(market_cap, currency)}; size tier not assessed ({unclassified_reason(currency)})."
+                )
         else:
             reasons.append("Market cap unavailable.")
 
         if eps is not None:
             if eps > 0:
                 score += 5
-                reasons.append(f"Positive EPS of ${eps:.2f} confirms profitability.")
+                reasons.append(f"Positive EPS of {format_money(eps, currency)} confirms profitability.")
             else:
                 score -= 10
-                reasons.append(f"Negative EPS of ${eps:.2f} indicates the company is not yet profitable.")
+                reasons.append(f"Negative EPS of {format_money(eps, currency)} indicates the company is not yet profitable.")
         
         if revenue is not None:
-            reasons.append(f"Annual revenue: ${revenue/1e9:.2f}B.")
+            reasons.append(f"Annual revenue: {format_large_amount(revenue, currency)}.")
 
         return max(0.0, min(100.0, score)), reasons
 
@@ -188,6 +197,11 @@ class ScoringEngine:
         reasons: List[str] = []
 
         current_price = data.get("current_price")
+        currency = data.get("currency")
+
+        def money(value: float) -> str:
+            return format_money(value, currency)
+
         rsi = data.get("rsi")
         moving_averages = data.get("moving_averages") or {}
         high_52 = data.get("high_52_week")
@@ -220,30 +234,32 @@ class ScoringEngine:
         if current_price and ma_20 and ma_50:
             if current_price > ma_20 > ma_50:
                 score += 20
-                reasons.append(f"Bullish trend: price (${current_price:.2f}) above 20d MA (${ma_20:.2f}) above 50d MA (${ma_50:.2f}).")
+                reasons.append(f"Bullish trend: price ({money(current_price)}) above 20d MA ({money(ma_20)}) above 50d MA ({money(ma_50)}).")
             elif current_price > ma_50:
                 score += 10
-                reasons.append(f"Price (${current_price:.2f}) above key 50d MA (${ma_50:.2f}) — positive trend.")
+                reasons.append(f"Price ({money(current_price)}) above key 50d MA ({money(ma_50)}) — positive trend.")
             elif current_price < ma_20 < ma_50:
                 score -= 20
-                reasons.append(f"Bearish trend: price (${current_price:.2f}) below 20d MA (${ma_20:.2f}) below 50d MA (${ma_50:.2f}).")
+                reasons.append(f"Bearish trend: price ({money(current_price)}) below 20d MA ({money(ma_20)}) below 50d MA ({money(ma_50)}).")
             elif current_price < ma_50:
                 score -= 10
-                reasons.append(f"Price (${current_price:.2f}) below 50d MA (${ma_50:.2f}) — negative trend.")
+                reasons.append(f"Price ({money(current_price)}) below 50d MA ({money(ma_50)}) — negative trend.")
         elif current_price and ma_50:
             if current_price > ma_50:
                 score += 10
-                reasons.append(f"Price (${current_price:.2f}) above 50d MA (${ma_50:.2f}).")
+                reasons.append(f"Price ({money(current_price)}) above 50d MA ({money(ma_50)}).")
             else:
                 score -= 10
-                reasons.append(f"Price (${current_price:.2f}) below 50d MA (${ma_50:.2f}).")
+                reasons.append(f"Price ({money(current_price)}) below 50d MA ({money(ma_50)}).")
+        elif current_price:
+            reasons.append("50d moving average unavailable (insufficient price history); trend not assessed.")
 
         # 52-week position
         if current_price and high_52 and low_52 and high_52 > low_52:
             position = (current_price - low_52) / (high_52 - low_52)
             reasons.append(
                 f"Trading at {position*100:.0f}% of its 52-week range "
-                f"(Low: ${low_52:.2f} / High: ${high_52:.2f})."
+                f"(Low: {money(low_52)} / High: {money(high_52)})."
             )
             if position < 0.25:
                 score += 10
@@ -310,6 +326,7 @@ class ScoringEngine:
         low_52 = data.get("low_52_week")
         current_price = data.get("current_price")
         market_cap = data.get("market_cap")
+        currency = data.get("currency")
         pe_ratio = data.get("pe_ratio")
 
         # Volatility based on 52-week range
@@ -328,15 +345,18 @@ class ScoringEngine:
 
         # Liquidity proxy based on market cap
         if market_cap is not None:
-            if market_cap >= 10e9:
+            tier = classify_market_cap(market_cap, currency)
+            if tier in ("mega", "large"):
                 score += 15
                 reasons.append("High liquidity: Large-cap stock with deep trading markets.")
-            elif market_cap >= 2e9:
+            elif tier == "mid":
                 score += 5
                 reasons.append("Moderate liquidity: Mid-cap stock.")
-            else:
+            elif tier == "small":
                 score -= 15
                 reasons.append("Lower liquidity: Small-cap stock may have wider bid-ask spreads.")
+            else:
+                reasons.append(f"Liquidity not inferred from market cap ({unclassified_reason(currency)}).")
         else:
             reasons.append("Market cap unavailable for liquidity assessment.")
 
@@ -357,5 +377,11 @@ class ScoringEngine:
             "high_52_week", "low_52_week", "moving_averages", "latest_news",
             "sector", "fundamental_summary"
         ]
-        available = sum(1 for k in key_fields if data.get(k))
+        def present(key: str) -> bool:
+            value = data.get(key)
+            if key == "moving_averages":  # a dict of all-None averages is not data
+                return any(v is not None for v in (value or {}).values())
+            return bool(value)
+
+        available = sum(1 for k in key_fields if present(k))
         return available / len(key_fields)

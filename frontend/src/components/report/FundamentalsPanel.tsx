@@ -2,6 +2,7 @@ import React from 'react';
 import { ResearchReport, StrategyReport } from '../../types';
 import { SectionCard } from '../common/SectionCard';
 import { DataMetric } from '../common/DataMetric';
+import { formatLargeAmount } from '../../utils/currency';
 
 interface FundamentalsPanelProps {
   report?: ResearchReport;
@@ -17,12 +18,11 @@ export const FundamentalsPanel: React.FC<FundamentalsPanelProps> = ({ report }) 
   const beta = fund?.beta;
   const summary = r?.fundamental_summary || fund?.long_business_summary;
 
+  // The tier is computed by the backend (currency-aware); null means no verified thresholds for this currency.
+  const TIER_LABELS = { mega: 'Mega-Cap', large: 'Large-Cap', mid: 'Mid-Cap', small: 'Small-Cap' } as const;
   function marketCapTier(cap?: number | null) {
     if (!cap) return '—';
-    if (cap >= 200e9) return 'Mega-Cap';
-    if (cap >= 10e9) return 'Large-Cap';
-    if (cap >= 2e9) return 'Mid-Cap';
-    return 'Small-Cap';
+    return r?.market_cap_tier ? TIER_LABELS[r.market_cap_tier] : 'Unclassified';
   }
 
   function valuationLabel(pe?: number | null) {
@@ -37,7 +37,7 @@ export const FundamentalsPanel: React.FC<FundamentalsPanelProps> = ({ report }) 
   return (
     <SectionCard title="Fundamental Analysis" badge="Valuation">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-        <DataMetric label="Market Cap" value={marketCap != null ? (marketCap >= 1e9 ? `$${(marketCap / 1e9).toFixed(1)}B` : `$${(marketCap / 1e6).toFixed(0)}M`) : undefined} sub={marketCapTier(marketCap)} />
+        <DataMetric label="Market Cap" value={marketCap != null ? formatLargeAmount(marketCap, r?.currency) : undefined} sub={marketCapTier(marketCap)} />
         <DataMetric label="P/E Ratio" value={peRatio?.toFixed(1)} sub={valuationLabel(peRatio)} />
         <DataMetric label="Price to Book" value={pb?.toFixed(2)} />
         <DataMetric label="Beta" value={beta?.toFixed(2)} sub={beta != null ? (beta > 1.5 ? 'High Volatility' : beta < 0.5 ? 'Defensive' : 'Moderate') : undefined} />

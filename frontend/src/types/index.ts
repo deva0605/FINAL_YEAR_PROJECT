@@ -43,6 +43,9 @@ export interface NewsArticle {
 }
 
 export interface ResearchReport {
+  currency?: string | null;
+  currency_source?: string | null;
+  market_cap_tier?: 'mega' | 'large' | 'mid' | 'small' | null; // null = unclassified
   company?: string;
   ticker?: string;
   symbol?: string;
@@ -70,6 +73,7 @@ export interface ResearchReport {
 }
 
 export interface StrategyReport {
+  currency?: string | null;
   bull_thesis?: string;
   bear_thesis?: string;
   suggested_strategy?: string;
@@ -98,6 +102,7 @@ export interface RiskReport {
 }
 
 export interface DecisionReport {
+  currency?: string | null;
   recommendation?: string;
   confidence?: number;
   reasoning?: string;

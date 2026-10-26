@@ -4,6 +4,9 @@ import re
 import logging
 from typing import Dict, Any, Optional
 
+from backend.currency import currency_prompt_note, format_large_amount, format_money
+from backend.market_cap import classify_market_cap, tier_prompt_note, unclassified_reason
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -28,24 +31,24 @@ class LanguageAgent:
         except Exception as e:
             logger.warning(f"Could not initialize Gemini: {str(e)}")
 
-    def generate_research_summaries(self, symbol, company_name, context, technical_indicators, fundamentals, earnings) -> Dict[str, Any]:
+    def generate_research_summaries(self, symbol, company_name, context, technical_indicators, fundamentals, earnings, currency=None) -> Dict[str, Any]:
         """
         Generate fundamental/technical summaries and sentiment.
         Falls back to deterministic rule-based generation if LLM unavailable.
         """
         if self.use_gemini and self.gemini_model:
             try:
-                return self._generate_with_gemini(symbol, company_name, context, technical_indicators, fundamentals, earnings)
+                return self._generate_with_gemini(symbol, company_name, context, technical_indicators, fundamentals, earnings, currency)
             except Exception as e:
                 logger.warning(f"Gemini failed ({e}) — switching to rule-based summaries.")
 
-        return self._generate_rule_based_summaries(symbol, company_name, technical_indicators, fundamentals, earnings)
+        return self._generate_rule_based_summaries(symbol, company_name, technical_indicators, fundamentals, earnings, currency)
 
     # ------------------------------------------------------------------
     # LLM path
     # ------------------------------------------------------------------
 
-    def _generate_with_gemini(self, symbol, company_name, context, technical_indicators, fundamentals, earnings) -> Dict[str, Any]:
+    def _generate_with_gemini(self, symbol, company_name, context, technical_indicators, fundamentals, earnings, currency=None) -> Dict[str, Any]:
         prompt = f"""You are an expert financial analyst. Analyze the following data for {company_name} ({symbol}).
 
 CONTEXT AND NEWS:
@@ -60,6 +63,7 @@ FUNDAMENTALS:
 EARNINGS:
 {earnings}
 
+{currency_prompt_note(currency)}{tier_prompt_note((fundamentals or {}).get('market_cap'), currency)}
 Return a strictly valid JSON object with the following keys:
 - "fundamental_summary": A concise paragraph summarizing the company's fundamentals and recent earnings.
 - "technical_summary": A concise paragraph summarizing the technical setup (moving averages, RSI, momentum).
@@ -87,16 +91,19 @@ Output ONLY valid JSON without markdown blocks.
                 "technical_summary": data.get("technical_summary", ""),
                 "sentiment": data.get("sentiment", "Neutral"),
             }
-        return self._generate_rule_based_summaries(symbol, company_name, technical_indicators, fundamentals, earnings)
+        return self._generate_rule_based_summaries(symbol, company_name, technical_indicators, fundamentals, earnings, currency)
 
     # ------------------------------------------------------------------
     # Rule-based path
     # ------------------------------------------------------------------
 
-    def _generate_rule_based_summaries(self, symbol, company_name, technical_indicators, fundamentals, earnings) -> Dict[str, Any]:
+    def _generate_rule_based_summaries(self, symbol, company_name, technical_indicators, fundamentals, earnings, currency=None) -> Dict[str, Any]:
         """Generate human-readable summaries using retrieved financial data — no LLM required."""
         logger.info("Generating rule-based summaries for %s", symbol)
         
+        def money(value):
+            return format_money(value, currency)
+
         # ---------- Fundamental Summary ----------
         fund_parts = []
         market_cap = (fundamentals or {}).get("market_cap")
@@ -111,8 +118,13 @@ Output ONLY valid JSON without markdown blocks.
             fund_parts.append(f"{company_name} ({symbol}) is an investable security.")
 
         if market_cap:
-            tier = "mega-cap" if market_cap >= 200e9 else "large-cap" if market_cap >= 10e9 else "mid-cap" if market_cap >= 2e9 else "small-cap"
-            fund_parts.append(f"It is a {tier} company with a market capitalization of ${market_cap/1e9:.1f}B.")
+            tier = {"mega": "mega-cap", "large": "large-cap", "mid": "mid-cap", "small": "small-cap"}.get(classify_market_cap(market_cap, currency))
+            if tier:
+                fund_parts.append(f"It is a {tier} company with a market capitalization of {format_large_amount(market_cap, currency)}.")
+            else:
+                fund_parts.append(
+                    f"Its market capitalization is {format_large_amount(market_cap, currency)} (size tier not assessed: {unclassified_reason(currency)})."
+                )
 
         if pe is not None:
             if pe < 0:
@@ -128,7 +140,8 @@ Output ONLY valid JSON without markdown blocks.
             recent = [e for e in earnings if e.get("year") and e.get("earnings") is not None]
             if recent:
                 recent = sorted(recent, key=lambda x: x["year"], reverse=True)[:2]
-                yr_str = ", ".join([f"{e['year']}: ${e['earnings']/1e9:.2f}B" for e in recent])
+                financial_currency = (fundamentals or {}).get("financial_currency") or currency
+                yr_str = ", ".join([f"{e['year']}: {format_large_amount(e['earnings'], financial_currency)}" for e in recent])
                 fund_parts.append(f"Recent earnings: {yr_str}.")
 
         if summary:
@@ -148,7 +161,7 @@ Output ONLY valid JSON without markdown blocks.
         chg = (technical_indicators or {}).get("change_percent")
 
         if price:
-            tech_parts.append(f"Currently trading at ${price:.2f}" + (f" ({chg:+.2f}% today)." if chg is not None else "."))
+            tech_parts.append(f"Currently trading at {money(price)}" + (f" ({chg:+.2f}% today)." if chg is not None else "."))
 
         if rsi is not None:
             if rsi < 30:
@@ -160,15 +173,15 @@ Output ONLY valid JSON without markdown blocks.
 
         if ma20 and ma50 and price:
             if price > ma20 > ma50:
-                tech_parts.append(f"A bullish alignment: price (${price:.2f}) > 20d MA (${ma20:.2f}) > 50d MA (${ma50:.2f}).")
+                tech_parts.append(f"A bullish alignment: price ({money(price)}) > 20d MA ({money(ma20)}) > 50d MA ({money(ma50)}).")
             elif price < ma20 < ma50:
-                tech_parts.append(f"A bearish alignment: price (${price:.2f}) < 20d MA (${ma20:.2f}) < 50d MA (${ma50:.2f}).")
+                tech_parts.append(f"A bearish alignment: price ({money(price)}) < 20d MA ({money(ma20)}) < 50d MA ({money(ma50)}).")
             else:
-                tech_parts.append(f"20d MA: ${ma20:.2f}, 50d MA: ${ma50:.2f}.")
+                tech_parts.append(f"20d MA: {money(ma20)}, 50d MA: {money(ma50)}.")
 
         if high_52 and low_52 and price:
             pos = (price - low_52) / (high_52 - low_52) * 100 if (high_52 - low_52) > 0 else 50
-            tech_parts.append(f"The stock is at {pos:.0f}% of its 52-week range (L: ${low_52:.2f} / H: ${high_52:.2f}).")
+            tech_parts.append(f"The stock is at {pos:.0f}% of its 52-week range (L: {money(low_52)} / H: {money(high_52)}).")
 
         tech_parts.append("(Rule-Based Analysis — LLM unavailable)")
         technical_summary = " ".join(tech_parts)

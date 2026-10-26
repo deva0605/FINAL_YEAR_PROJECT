@@ -7,6 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from agents.language_agent import LanguageAgent
 from backend.agents.research_agent import ResearchReport
+from backend.currency import currency_prompt_note, format_money
+from backend.market_cap import tier_prompt_note
 from backend.scoring_engine import ScoringEngine, ScoringResult
 from backend.workflow_state import WorkflowState, WorkflowStep
 
@@ -29,6 +31,7 @@ class StrategyReport(BaseModel):
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     reasoning: str = ""
     catalysts: list[str] = Field(default_factory=list)
+    currency: Optional[str] = None  # currency of entry_zone / exit_zone / target; None = unverified
 
 
 class StrategyRequest(BaseModel):
@@ -57,6 +60,7 @@ class StrategyAgent:
 
         llm_strategy = self._generate_with_llm(report, time_horizon)
         strategy_report = llm_strategy or self._build_rule_based_strategy(report, time_horizon)
+        strategy_report.currency = report.currency  # never let generated text redefine the verified currency
 
         if workflow_state is not None:
             workflow_state.strategy_report = strategy_report
@@ -81,6 +85,7 @@ class StrategyAgent:
         )
         if time_horizon:
             prompt += f"The user has requested a time horizon of: {time_horizon}. Tailor the strategy accordingly.\n\n"
+        prompt += currency_prompt_note(report.currency) + tier_prompt_note(report.market_cap, report.currency) + "\n"
         prompt += f"ResearchReport:\n{report.model_dump_json(indent=2)}"
 
         try:
@@ -136,7 +141,7 @@ class StrategyAgent:
         else:
             suggested_strategy = "Hold existing position; monitor for directional confirmation."
 
-        entry_zone, exit_zone, target = self._price_zones(price, scoring.overall_score)
+        entry_zone, exit_zone, target = self._price_zones(price, scoring.overall_score, report.currency)
 
         catalysts = []
         if scoring.news_sentiment_score >= 60:
@@ -181,7 +186,7 @@ class StrategyAgent:
             return "12-24 months (long-term value)"
         return "6-12 months"
 
-    def _price_zones(self, price: float, score: float) -> tuple[str, str, str]:
+    def _price_zones(self, price: float, score: float, currency: Optional[str] = None) -> tuple[str, str, str]:
         if price <= 0:
             return "N/A", "N/A", "N/A"
         # Tighter for high-score, wider for low-score
@@ -195,9 +200,9 @@ class StrategyAgent:
         tgt = price * (1 + target_buf)
 
         return (
-            f"${entry_low:,.2f} - ${entry_high:,.2f}",
-            f"Stop-loss at ${stop:,.2f}",
-            f"${tgt:,.2f}",
+            f"{format_money(entry_low, currency)} - {format_money(entry_high, currency)}",
+            f"Stop-loss at {format_money(stop, currency)}",
+            format_money(tgt, currency),
         )
 
     def _resolve_report(self, research_report, workflow_state):

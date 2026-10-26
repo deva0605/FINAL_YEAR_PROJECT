@@ -7,6 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from agents.language_agent import LanguageAgent
 from backend.agents.research_agent import ResearchReport
+from backend.currency import currency_prompt_note
+from backend.market_cap import classify_market_cap, tier_prompt_note
 from backend.scoring_engine import ScoringEngine, ScoringResult
 from backend.workflow_state import WorkflowState, WorkflowStep
 
@@ -76,7 +78,8 @@ class RiskAgent:
             "volatility, liquidity, valuation, financial_risk, news_risk, macro_risk, "
             "overall_risk, overall_risk_rating, risk_score (0-100), "
             "weaknesses (list of strings), recommendations (list of strings), reasons (list of strings). "
-            "Output ONLY valid JSON.\n\n"
+            "Output ONLY valid JSON.\n"
+            f"{currency_prompt_note(report.currency)}{tier_prompt_note(report.market_cap, report.currency)}\n"
             f"ResearchReport:\n{report.model_dump_json(indent=2)}"
         )
 
@@ -114,13 +117,14 @@ class RiskAgent:
 
         # Liquidity from market cap
         market_cap = report.market_cap
-        if market_cap and market_cap >= 10e9:
+        tier = classify_market_cap(market_cap, report.currency) if market_cap else None
+        if tier in ("mega", "large"):
             liquidity_label = "High"
-        elif market_cap and market_cap >= 2e9:
+        elif tier == "mid":
             liquidity_label = "Moderate"
-        elif market_cap:
+        elif tier == "small":
             liquidity_label = "Low"
-        else:
+        else:  # no market cap, or no verified thresholds for this currency
             liquidity_label = "Unknown"
 
         # Valuation from PE

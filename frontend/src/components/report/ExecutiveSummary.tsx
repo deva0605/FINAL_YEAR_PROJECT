@@ -1,6 +1,7 @@
 import React from 'react';
 import { WorkflowState } from '../../types';
 import { RecommendationBadge, RiskBadge, SentimentBadge } from '../common/Badges';
+import { formatMoney } from '../../utils/currency';
 
 interface ExecutiveSummaryProps {
   state: WorkflowState;
@@ -55,7 +56,7 @@ export const ExecutiveSummary: React.FC<ExecutiveSummaryProps> = ({ state, query
         <div className="flex flex-col gap-1.5 p-3 rounded-lg bg-slate-50 border border-slate-100">
           <span className="text-[10px] text-slate-400 uppercase font-mono tracking-wider">Current Price</span>
           <span className="text-lg font-bold text-slate-900 font-mono tabular-nums">
-            {rr?.current_price != null ? `$${rr.current_price.toFixed(2)}` : '—'}
+            {formatMoney(rr?.current_price, rr?.currency)}
           </span>
         </div>
         <div className="flex flex-col gap-1.5 p-3 rounded-lg bg-slate-50 border border-slate-100">

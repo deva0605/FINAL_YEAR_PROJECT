@@ -6,6 +6,10 @@ import json
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# ~400 calendar days is ~275 trading sessions: enough for a 52-week range (~252 sessions)
+# plus a buffer for holidays and missing bars. The 30-day default only produced ~21 bars.
+DEFAULT_HISTORY_LOOKBACK_DAYS = 400
+
 class APIAgent:
     def __init__(self):
         self.cache = {}
@@ -16,7 +20,7 @@ class APIAgent:
         
         Args:
             symbols: List of stock symbols to fetch
-            start_date: Start date (YYYY-MM-DD format or None for 30 days ago)
+            start_date: Start date (YYYY-MM-DD format or None for DEFAULT_HISTORY_LOOKBACK_DAYS ago)
             end_date: End date (YYYY-MM-DD format or None for today)
             
         Returns:
@@ -33,7 +37,7 @@ class APIAgent:
             if not end_date:
                 end_date = datetime.now().strftime('%Y-%m-%d')
             if not start_date:
-                start_date = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
+                start_date = (datetime.now() - timedelta(days=DEFAULT_HISTORY_LOOKBACK_DAYS)).strftime('%Y-%m-%d')
 
             logger.info(f"Fetching market data for {symbols} from {start_date} to {end_date}")
             
@@ -55,6 +59,11 @@ class APIAgent:
                         # Reset index to make the date a column for easier serialization
                         hist = hist.reset_index()
                         hist['Date'] = hist['Date'].astype(str)
+                        # the currency Yahoo reports for this instrument's prices (None when not reported)
+                        try:
+                            hist.attrs["currency"] = (ticker.history_metadata or {}).get("currency")
+                        except Exception:
+                            hist.attrs["currency"] = None
                         self.cache[symbol] = hist
                         logger.info(f"Successfully cached {symbol}: {len(hist)} rows")
                     

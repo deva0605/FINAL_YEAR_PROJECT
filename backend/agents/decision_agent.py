@@ -6,6 +6,8 @@ from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from agents.language_agent import LanguageAgent
+from backend.currency import currency_prompt_note, format_money
+from backend.market_cap import tier_prompt_note
 from backend.scoring_engine import ScoringEngine
 from backend.workflow_state import WorkflowState, WorkflowStep
 
@@ -25,6 +27,7 @@ class DecisionReport(BaseModel):
     supporting_evidence: list[str] = Field(default_factory=list)
     next_steps: list[str] = Field(default_factory=list)
     investment_horizon: str = ""
+    currency: Optional[str] = None  # currency of any amounts quoted above; None = unverified
 
 
 class DecisionAgent:
@@ -44,6 +47,7 @@ class DecisionAgent:
 
         llm_decision = self._generate_with_llm(workflow_state)
         decision_report = llm_decision or self._build_rule_based_decision(workflow_state)
+        decision_report.currency = getattr(workflow_state.research_report, "currency", None)
 
         if workflow_state is not None:
             workflow_state.decision_report = decision_report
@@ -66,6 +70,12 @@ class DecisionAgent:
             "recommendation (must be exactly 'BUY', 'HOLD', or 'SELL'), confidence (0.0-1.0), "
             "reasoning, overall_summary, supporting_evidence (list of strings), "
             "next_steps (list of strings), investment_horizon. Output ONLY valid JSON.\n\n"
+        )
+        research = state.research_report
+        prompt += (
+            currency_prompt_note(getattr(research, "currency", None))
+            + tier_prompt_note(getattr(research, "market_cap", None), getattr(research, "currency", None))
+            + "\n"
         )
         if state.research_report:
             prompt += f"ResearchReport:\n{state.research_report.model_dump_json(indent=2)}\n\n"
@@ -121,7 +131,7 @@ class DecisionAgent:
         # Build detailed summary
         company = getattr(research, "company", "") or getattr(research, "ticker", "")
         price = getattr(research, "current_price", None)
-        price_str = f"${price:.2f}" if price else "N/A"
+        price_str = format_money(price, getattr(research, "currency", None)) if price else "N/A"
 
         summary_parts = [
             f"Rule-Based Analysis (LLM unavailable). "
