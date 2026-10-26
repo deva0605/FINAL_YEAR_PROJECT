@@ -15,9 +15,10 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 # 3. Now import FastAPI and the Agents
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, ValidationError
 from backend.agents.research_agent import ResearchAgent, ResearchReport
-from backend.agents.strategy_agent import StrategyAgent, StrategyRequest
-from backend.agents.risk_agent import RiskAgent, RiskRequest
+from backend.agents.strategy_agent import StrategyAgent, StrategyReport, StrategyRequest
+from backend.agents.risk_agent import RiskAgent, RiskReport, RiskRequest
 from backend.agents.decision_agent import DecisionAgent
 from backend.workflow_orchestrator import DefaultWorkflowOrchestrator
 from backend.workflow_state import WorkflowState
@@ -194,14 +195,33 @@ def risk(request: RiskRequest):
         return {"error": str(e)}
 
 
+def _validated_report(model: type[BaseModel], value, name: str, required: bool = False):
+    """Turn a request-body dict into its typed report model.
+
+    The decision agent works on typed reports (currency, price, company, model_dump_json...), so plain dicts must
+    not reach WorkflowState. Invalid input is a client error: 422 with field-level details, like /strategy and /risk.
+    """
+    if value is None:
+        if required:
+            raise HTTPException(status_code=422, detail=[{"type": "missing", "loc": ["body", name], "msg": "Field required"}])
+        return None
+    try:
+        return model.model_validate(value)
+    except ValidationError as exc:
+        details = exc.errors(include_url=False, include_context=False, include_input=False)
+        for item in details:
+            item["loc"] = ["body", name, *item["loc"]]
+        raise HTTPException(status_code=422, detail=details) from exc
+
+
 @app.post("/decision/decision")
 def decision(data: dict):
-    try:
-        payload = data or {}
-        research = payload.get("research_report")
-        strategy = payload.get("strategy_report")
-        risk = payload.get("risk_report")
+    payload = data or {}
+    research = _validated_report(ResearchReport, payload.get("research_report"), "research_report", required=True)
+    strategy = _validated_report(StrategyReport, payload.get("strategy_report"), "strategy_report")
+    risk = _validated_report(RiskReport, payload.get("risk_report"), "risk_report")
 
+    try:
         workflow_state = WorkflowState(
             research_report=research,
             strategy_report=strategy,
