@@ -1,5 +1,6 @@
 import React from 'react';
 import { cn } from '../../utils/cn';
+import { Tone, TONE_BADGE, TONE_DOT, toneForRisk } from './tone';
 
 interface ScoreBadgeProps {
   score?: number | null;
@@ -7,21 +8,23 @@ interface ScoreBadgeProps {
   size?: 'sm' | 'md' | 'lg';
 }
 
-function colorForScore(score: number) {
-  if (score >= 65) return 'text-emerald-800 bg-emerald-50 border-emerald-200/80';
-  if (score >= 45) return 'text-amber-800 bg-amber-50 border-amber-200/80';
-  return 'text-rose-800 bg-rose-50 border-rose-200/80';
+function toneForScore(score: number): Tone {
+  if (score >= 65) return 'accent';
+  if (score >= 45) return 'caution';
+  return 'danger';
 }
 
 export const ScoreBadge: React.FC<ScoreBadgeProps> = ({ score, label, size = 'md' }) => {
   if (score == null) return null;
-  const color = colorForScore(score);
   const sizeClass = size === 'lg' ? 'text-xl px-4 py-2' : size === 'sm' ? 'text-xs px-2 py-0.5' : 'text-sm px-3 py-1';
 
   return (
-    <div className={cn('inline-flex flex-col items-center border rounded-lg font-mono', sizeClass, color)}>
-      <span className="font-black leading-none tabular-nums">{score.toFixed(0)}<span className="text-xs font-normal opacity-60">/100</span></span>
-      {label && <span className="text-[10px] font-bold uppercase tracking-wider mt-0.5">{label}</span>}
+    <div className={cn('inline-flex flex-col items-center rounded-lg border tabular-nums', sizeClass, TONE_BADGE[toneForScore(score)])}>
+      <span className="font-semibold leading-none">
+        {score.toFixed(0)}
+        <span className="text-xs font-normal opacity-70">/100</span>
+      </span>
+      {label && <span className="mt-0.5 text-xs">{label}</span>}
     </div>
   );
 };
@@ -31,22 +34,28 @@ interface RecommendationBadgeProps {
   large?: boolean;
 }
 
+function toneForRecommendation(rec: string): Tone {
+  if (!rec) return 'neutral';
+  if (rec.includes('BUY')) return 'accent';
+  if (rec.includes('SELL')) return 'danger';
+  return 'caution'; // HOLD
+}
+
 export const RecommendationBadge: React.FC<RecommendationBadgeProps> = ({ recommendation, large }) => {
   const rec = (recommendation || '').toUpperCase();
-  const color = rec.includes('BUY')
-    ? 'text-emerald-800 border-emerald-200/80 bg-emerald-50'
-    : rec.includes('SELL')
-    ? 'text-rose-800 border-rose-200/80 bg-rose-50'
-    : 'text-amber-800 border-amber-200/80 bg-amber-50';
+  const tone = toneForRecommendation(rec);
 
   return (
-    <div className={cn(
-      'inline-flex items-center justify-center border font-black rounded-lg tracking-widest uppercase font-mono',
-      color,
-      large ? 'text-3xl px-6 py-2.5' : 'text-[10px] px-2 py-0.5'
-    )}>
+    <span
+      className={cn(
+        'inline-flex items-center gap-2 rounded-lg border font-semibold tracking-wide',
+        TONE_BADGE[tone],
+        large ? 'px-3.5 py-1.5 text-xl' : 'px-2 py-0.5 text-xs',
+      )}
+    >
+      <span className={cn('rounded-full', TONE_DOT[tone], large ? 'h-2 w-2' : 'h-1.5 w-1.5')} aria-hidden="true" />
       {recommendation || 'N/A'}
-    </div>
+    </span>
   );
 };
 
@@ -54,20 +63,11 @@ interface RiskBadgeProps {
   risk?: string;
 }
 
-export const RiskBadge: React.FC<RiskBadgeProps> = ({ risk }) => {
-  const r = (risk || '').toLowerCase();
-  const color = r.includes('high') || r.includes('very')
-    ? 'text-rose-700 bg-rose-50 border-rose-200'
-    : r.includes('low')
-    ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
-    : 'text-amber-700 bg-amber-50 border-amber-200';
-
-  return (
-    <span className={cn('inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase border font-mono', color)}>
-      {risk || '—'}
-    </span>
-  );
-};
+export const RiskBadge: React.FC<RiskBadgeProps> = ({ risk }) => (
+  <span className={cn('inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium', TONE_BADGE[toneForRisk(risk || '')])}>
+    {risk || '—'}
+  </span>
+);
 
 interface SentimentBadgeProps {
   sentiment?: string;
@@ -75,14 +75,9 @@ interface SentimentBadgeProps {
 
 export const SentimentBadge: React.FC<SentimentBadgeProps> = ({ sentiment }) => {
   const s = (sentiment || '').toLowerCase();
-  const color = s === 'bullish'
-    ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
-    : s === 'bearish'
-    ? 'text-rose-700 bg-rose-50 border-rose-200'
-    : 'text-slate-600 bg-slate-50 border-slate-200';
-
+  const tone: Tone = s === 'bullish' ? 'accent' : s === 'bearish' ? 'danger' : 'neutral';
   return (
-    <span className={cn('inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-semibold uppercase border font-mono', color)}>
+    <span className={cn('inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium', TONE_BADGE[tone])}>
       {sentiment || 'Neutral'}
     </span>
   );

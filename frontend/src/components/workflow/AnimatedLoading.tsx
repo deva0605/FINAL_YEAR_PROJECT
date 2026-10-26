@@ -1,28 +1,29 @@
 import React from 'react';
+import { CheckCircle2, Loader2 } from 'lucide-react';
 import { cn } from '../../utils/cn';
 
 const STEPS = ['research', 'strategy', 'risk', 'decision'] as const;
 
 const STEP_META: Record<string, { label: string; icon: string; phases: string[] }> = {
   research: {
-    label: 'Research Agent',
+    label: 'Research agent',
     icon: 'manage_search',
-    phases: ['Fetching Market Data...', 'Analyzing Fundamentals...', 'Reading News Articles...', 'Calculating Technicals...'],
+    phases: ['Fetching market data…', 'Analyzing fundamentals…', 'Reading news articles…', 'Calculating technicals…'],
   },
   strategy: {
-    label: 'Strategy Agent',
+    label: 'Strategy agent',
     icon: 'analytics',
-    phases: ['Generating Investment Thesis...', 'Building Bull & Bear Cases...', 'Defining Entry & Exit...'],
+    phases: ['Generating investment thesis…', 'Building bull and bear cases…', 'Defining entry and exit…'],
   },
   risk: {
-    label: 'Risk Agent',
+    label: 'Risk agent',
     icon: 'shield',
-    phases: ['Evaluating Volatility...', 'Assessing Valuation Risk...', 'Scoring News Risk...'],
+    phases: ['Evaluating volatility…', 'Assessing valuation risk…', 'Scoring news risk…'],
   },
   decision: {
-    label: 'Decision Agent',
+    label: 'Decision agent',
     icon: 'gavel',
-    phases: ['Weighing All Evidence...', 'Preparing Final Recommendation...'],
+    phases: ['Weighing all evidence…', 'Preparing final recommendation…'],
   },
 };
 
@@ -31,67 +32,43 @@ interface AnimatedLoadingProps {
 }
 
 export const AnimatedLoading: React.FC<AnimatedLoadingProps> = ({ currentStep }) => {
-  const activeIndex = STEPS.indexOf((currentStep || 'research') as any);
+  const activeIndex = STEPS.indexOf((currentStep || 'research') as (typeof STEPS)[number]);
 
   return (
-    <div className="flex flex-col items-center justify-center py-12 gap-8">
+    <div className="flex flex-col items-center gap-6 py-6" aria-busy="true">
       <div className="text-center">
-        <div className="inline-flex items-center gap-2.5 text-emerald-600 mb-2">
-          <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-          <span className="text-sm font-bold font-mono tracking-wide uppercase">Running Multi-Agent Synthesis</span>
+        <div className="mb-1 inline-flex items-center gap-2 text-ink">
+          <Loader2 className="h-4 w-4 animate-spin text-accent" aria-hidden="true" />
+          <span className="text-sm font-semibold">Running research</span>
         </div>
-        <p className="text-xs text-slate-500">Executing institutional workflow parallel models...</p>
+        <p className="text-xs text-ink-muted">The agents work in sequence; the report appears when all of them have finished.</p>
       </div>
 
-      <div className="w-full max-w-lg flex flex-col gap-3">
+      <ol className="flex w-full max-w-lg flex-col gap-2">
         {STEPS.map((step, idx) => {
           const meta = STEP_META[step];
           const isDone = activeIndex > idx;
           const isActive = activeIndex === idx;
-          const isPending = activeIndex < idx;
 
           return (
-            <div
-              key={step}
-              className={cn(
-                'flex items-center gap-4 p-3 rounded-xl border transition-all duration-500',
-                isDone && 'bg-slate-50 border-slate-200/60',
-                isActive && 'bg-white border-emerald-200 shadow-sm',
-                isPending && 'border-slate-100 opacity-40',
-              )}
-            >
-              <div className={cn(
-                'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 text-[10px]',
-                isDone && 'bg-slate-100 text-slate-600',
-                isActive && 'bg-emerald-100 text-emerald-600',
-                isPending && 'bg-slate-50 text-slate-400',
-              )}>
-                {isDone ? (
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
-                ) : isActive ? (
-                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                ) : (
-                  <span className="font-mono font-bold">{idx + 1}</span>
-                )}
-              </div>
-
-              <div className="flex-1 min-w-0">
-                <div className={cn('text-xs font-bold font-mono tracking-tight', isActive ? 'text-emerald-700' : isDone ? 'text-slate-700' : 'text-slate-400')}>
-                  {meta.label}
+            <li key={step} className={cn('flex items-center gap-3 rounded-xl border bg-white px-4 py-3 transition-colors', isActive ? 'border-accent-line' : 'border-line', !isDone && !isActive && 'opacity-60')}>
+              <span
+                className={cn('flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-xs', isActive ? 'bg-accent-soft text-accent-ink' : isDone ? 'bg-slate-100 text-accent' : 'bg-slate-50 text-ink-muted')}
+                aria-hidden="true"
+              >
+                {isDone ? <CheckCircle2 className="h-4 w-4" /> : isActive ? <Loader2 className="h-4 w-4 animate-spin" /> : idx + 1}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium text-ink">{meta.label}</span>
+                  <span className="text-xs text-ink-muted">{isDone ? 'Completed' : isActive ? 'Running' : 'Waiting'}</span>
                 </div>
-                {isActive && (
-                  <div className="text-[10px] font-mono text-slate-500 mt-0.5 animate-pulse">
-                    {meta.phases[Math.floor(Date.now() / 2000) % meta.phases.length]}
-                  </div>
-                )}
-                {isDone && <div className="text-[10px] font-mono text-slate-500 mt-0.5">200 OK — Task Completed</div>}
+                {isActive && <div className="mt-0.5 text-xs text-ink-muted">{meta.phases[Math.floor(Date.now() / 2000) % meta.phases.length]}</div>}
               </div>
-            </div>
+            </li>
           );
         })}
-      </div>
+      </ol>
     </div>
   );
 };

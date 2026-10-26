@@ -11,26 +11,26 @@ export const ThinkingMessage: React.FC<ThinkingMessageProps> = ({ messages, inte
 
   useEffect(() => {
     if (messages.length <= 1) return;
-    
+
     const timer = setInterval(() => {
       setIndex((prev) => (prev + 1) % messages.length);
     }, interval);
-    
+
     return () => clearInterval(timer);
   }, [messages, interval]);
 
   return (
-    <div className="relative h-4 flex items-center overflow-hidden font-mono text-[10px]">
+    <div className="relative flex h-4 items-center overflow-hidden text-xs">
       <AnimatePresence mode="wait">
         <motion.div
           key={index}
-          initial={{ opacity: 0, y: 5 }}
+          initial={{ opacity: 0, y: 4 }}
           animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -5 }}
+          exit={{ opacity: 0, y: -4 }}
           transition={{ duration: 0.2 }}
-          className="text-emerald-600/80 absolute w-full truncate"
+          className="absolute w-full truncate text-ink-muted"
         >
-          &gt; {messages[index]}
+          {messages[index]}
         </motion.div>
       </AnimatePresence>
     </div>

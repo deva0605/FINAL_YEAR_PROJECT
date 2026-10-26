@@ -1,25 +1,37 @@
-import { Outlet } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { Outlet, useLocation } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
 
 export function MainLayout() {
+  const [navOpen, setNavOpen] = useState(false);
+  const { pathname } = useLocation();
+
+  // close the mobile drawer after navigating
+  useEffect(() => setNavOpen(false), [pathname]);
+
   return (
-    <div className="flex min-h-screen w-full bg-surface-bg font-sans antialiased">
-      <Sidebar />
-      <div className="flex-1 ml-[260px] flex flex-col min-w-0">
-        <Header />
-        <main className="flex-1 p-6 max-w-7xl w-full mx-auto">
+    <div className="min-h-screen w-full bg-canvas font-sans text-ink-soft antialiased">
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:rounded-lg focus:bg-ink focus:px-3 focus:py-2 focus:text-sm focus:text-white"
+      >
+        Skip to main content
+      </a>
+
+      <Sidebar open={navOpen} onClose={() => setNavOpen(false)} />
+
+      <div className="flex min-h-screen min-w-0 flex-col lg:pl-[232px]">
+        <Header onOpenNav={() => setNavOpen(true)} />
+        <main id="main" tabIndex={-1} className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 outline-none sm:px-6 lg:py-8">
           <Outlet />
         </main>
-        <footer className="mt-auto px-6 py-4 border-t border-surface-border bg-white text-xs text-slate-400 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-slate-700">Fin AI</span>
-            <span>© 2025 BSE & Global Financial Intelligence. All Rights Reserved.</span>
-          </div>
-          <div className="flex items-center gap-4 text-[11px] font-mono">
-            <span className="hover:text-slate-600 cursor-pointer">API Docs</span>
-            <span className="hover:text-slate-600 cursor-pointer">Regulatory Disclaimers</span>
-            <span className="hover:text-slate-600 cursor-pointer">Latency: 18ms (Mumbai-1)</span>
+        <footer className="no-print border-t border-line bg-white px-4 py-4 text-xs text-ink-muted sm:px-6">
+          <div className="mx-auto flex max-w-6xl flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <span>
+              <span className="font-medium text-ink-soft">FinAI Cloud</span> · Multi-agent investment research
+            </span>
+            <span>Research output is informational and is not investment advice.</span>
           </div>
         </footer>
       </div>

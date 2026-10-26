@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, wait as wait_futures
 from dataclasses import dataclass, field
@@ -9,8 +10,9 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 import pandas as pd
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
+from agents.gemini_client import GenerationInfo
 from agents.language_agent import LanguageAgent
 from agents.retriever_agent import RetrieverAgent
 from data_ingestion.api_agent import APIAgent
@@ -23,6 +25,8 @@ from data_ingestion.nse_market_service import (
     is_nse_symbol,
 )
 from data_ingestion.nse_mcp_client import nse_mcp_enabled
+from backend.currency import NSE_SOURCE_LABEL, resolve_currency
+from backend.market_cap import classify_market_cap
 from backend.workflow_state import WorkflowState, WorkflowStep
 
 logging.basicConfig(level=logging.INFO)
@@ -51,6 +55,8 @@ class Fundamentals(BaseModel):
     beta: Optional[float] = None
     website: Optional[str] = None
     long_business_summary: Optional[str] = None
+    currency: Optional[str] = None  # trading currency reported by Yahoo (prices, market cap)
+    financial_currency: Optional[str] = None  # currency of the financial statements (earnings, revenue)
 
 class EarningsRecord(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -75,6 +81,9 @@ class ResearchReport(BaseModel):
     pe_ratio: Optional[float] = None
     eps: Optional[float] = None
     revenue: Optional[float] = None
+    currency: Optional[str] = None  # ISO code of the instrument's prices; None = could not be verified
+    currency_source: Optional[str] = None
+    generation: Optional[GenerationInfo] = None  # whether the summaries came from the LLM or the fallback
     high_52_week: Optional[float] = None
     low_52_week: Optional[float] = None
     moving_averages: dict = Field(default_factory=dict)
@@ -89,10 +98,21 @@ class ResearchReport(BaseModel):
     market_data_freshness: Optional[str] = None
     market_data_warnings: list[str] = Field(default_factory=list)
 
+    @computed_field  # derived, so it can never disagree with market_cap / currency
+    @property
+    def market_cap_tier(self) -> Optional[str]:
+        """'mega' | 'large' | 'mid' | 'small', or None = unclassified (see backend/market_cap.py)."""
+        return classify_market_cap(self.market_cap, self.currency)
+
 YAHOO_SOURCE = "Yahoo Finance (yfinance)"
 NSE_HISTORY_MONTHS = 3  # one tool call (~60 bars): enough for MA50 / RSI14; 52-week range comes from the live NSE quote
 DEFAULT_NSE_BUDGET_SECONDS = 8.0  # total wall-clock cap for *optional* NSE enrichment
 USABLE_QUOTE_FRESHNESS = {"live", "delayed", "closed"}
+CLOSE_COLUMNS = ["Close", "close", "Adj Close", "adj close", "adj_close"]
+MIN_BARS_MA20 = 20
+MIN_BARS_MA50 = 50
+MIN_52W_BARS = 240  # ~95% of the ~252 sessions in a year, tolerating holidays and a few missing bars
+MIN_52W_SPAN_DAYS = 350  # the history must actually reach back about a year
 
 
 @dataclass
@@ -117,6 +137,8 @@ class ResearchAgent:
         self.api_agent = api_agent or APIAgent()
         self.scraping_agent = scraping_agent or ScrapingAgent()
         self.retriever_agent = retriever_agent or RetrieverAgent()
+        # the retriever keeps its index on the instance, and requests now run in parallel threads
+        self._retrieval_lock = threading.Lock()
         self.language_agent = language_agent or LanguageAgent()
         self._nse_service = nse_service
         if nse_budget_seconds is None:
@@ -139,11 +161,19 @@ class ResearchAgent:
 
         technical_indicators = self._build_technical_indicators(market_frame)
         market_meta = self._apply_nse_quote(technical_indicators, nse_data, market_source)
+        market_meta["warnings"].extend(
+            self._indicator_warnings(market_frame, technical_indicators, market_meta["warnings"])
+        )
         fundamentals = self._fetch_fundamentals(symbol)
         company_name = fundamentals.long_name or self._company_name_from_symbol(symbol)
 
         earnings_frame = self.api_agent.get_earnings(symbol)
         earnings_records = self._serialize_earnings(earnings_frame)
+
+        currency, currency_source, currency_warnings = self._resolve_currency(
+            market_meta["source"], fundamentals, market_frame
+        )
+        market_meta["warnings"].extend(w for w in currency_warnings if w not in market_meta["warnings"])
 
         news_articles = self._fetch_news(symbol)
         context = self._retrieve_context(symbol, company_name, news_articles)
@@ -156,7 +186,8 @@ class ResearchAgent:
             context=context,
             technical_indicators=technical_indicators.model_dump(),
             fundamentals=fundamentals.model_dump(),
-            earnings=[e.model_dump() for e in earnings_records]
+            earnings=[e.model_dump() for e in earnings_records],
+            currency=currency,
         )
 
         news_list = [{"title": n.title, "url": n.url, "publish_date": n.publish_date} for n in news_articles]
@@ -173,6 +204,9 @@ class ResearchAgent:
             pe_ratio=fundamentals.pe_ratio,
             eps=None, 
             revenue=None,
+            currency=currency,
+            currency_source=currency_source,
+            generation=summaries.get("generation"),
             high_52_week=technical_indicators.high_52_week,
             low_52_week=technical_indicators.low_52_week,
             moving_averages={"20d": technical_indicators.moving_average_20, "50d": technical_indicators.moving_average_50},
@@ -193,6 +227,17 @@ class ResearchAgent:
             workflow_state.complete_step(WorkflowStep.RESEARCH)
 
         return report
+
+    @staticmethod
+    def _resolve_currency(market_source: str, fundamentals: Fundamentals, market_frame: pd.DataFrame):
+        """Instrument currency from what the data sources report. Nothing is inferred from the ticker
+        suffix; NSE cash-market data (the NSE India MCP) is quoted in INR by definition."""
+        candidates: list[tuple[str, object]] = []
+        if market_source != YAHOO_SOURCE:
+            candidates.append((NSE_SOURCE_LABEL, "INR"))
+        candidates.append(("Yahoo Finance quote info", getattr(fundamentals, "currency", None)))
+        candidates.append(("Yahoo Finance price history", getattr(market_frame, "attrs", {}).get("currency")))
+        return resolve_currency(candidates)
 
     def _fetch_market_frame(self, symbol: str) -> Optional[pd.DataFrame]:
         market_data = self.api_agent.get_market_data([symbol])
@@ -347,6 +392,8 @@ class ResearchAgent:
             beta=self._as_float(info.get("beta")),
             website=info.get("website"),
             long_business_summary=info.get("longBusinessSummary"),
+            currency=info.get("currency"),
+            financial_currency=info.get("financialCurrency"),
         )
 
     def _fetch_news(self, symbol: str) -> list[NewsArticle]:
@@ -373,9 +420,10 @@ class ResearchAgent:
         if not articles:
             return []
         documents = [article.model_dump() for article in articles]
-        self.retriever_agent.index_documents(documents)
         query = f"{company_name} {symbol}"
-        context_docs = self.retriever_agent.retrieve(query, k=3)
+        with self._retrieval_lock:  # index + retrieve must be atomic, or another request's news leaks into this context
+            self.retriever_agent.index_documents(documents)
+            context_docs = self.retriever_agent.retrieve(query, k=3)
         context: list[str] = []
         for doc in context_docs:
             if hasattr(doc, "page_content"):
@@ -386,24 +434,78 @@ class ResearchAgent:
                 context.append(str(doc))
         return context
 
+    def _clean_price_frame(self, frame: pd.DataFrame) -> pd.DataFrame:
+        """Rows with a valid close only, in chronological order when dates are usable.
+        Adds `_close` and (when every date parses) `_date` helper columns."""
+        close_col = next((c for c in CLOSE_COLUMNS if c in frame.columns), None)
+        if close_col is None:
+            return pd.DataFrame({"_close": pd.Series(dtype="float64")})
+        work = frame.copy()
+        work["_close"] = pd.to_numeric(work[close_col], errors="coerce")
+        work = work[work["_close"].notna()]
+        if "Date" in work.columns and not work.empty:
+            dates = pd.to_datetime(work["Date"], errors="coerce", utc=True)
+            if dates.notna().all():
+                work = work.assign(_date=dates).sort_values("_date", kind="stable")
+                work = work.drop_duplicates("_date", keep="last")
+        return work
+
+    def _fifty_two_week_range(self, work: pd.DataFrame) -> tuple[Optional[float], Optional[float]]:
+        """High/low over the trailing year, or (None, None) when the history does not
+        actually cover about a year (fewer than MIN_52W_BARS bars or too short a date span)."""
+        if len(work) < MIN_52W_BARS:
+            return None, None
+        if "_date" in work.columns:
+            last = work["_date"].iloc[-1]
+            if work["_date"].iloc[0] > last - pd.Timedelta(days=MIN_52W_SPAN_DAYS):
+                return None, None
+            window = work[work["_date"] > last - pd.Timedelta(days=365)]
+            if len(window) < MIN_52W_BARS:
+                return None, None
+        else:
+            window = work.tail(252)
+        highs = pd.to_numeric(window["High"], errors="coerce").dropna() if "High" in window.columns else window["_close"]
+        lows = pd.to_numeric(window["Low"], errors="coerce").dropna() if "Low" in window.columns else window["_close"]
+        if highs.empty or lows.empty:
+            highs = lows = window["_close"]
+        return self._series_max(highs), self._series_min(lows)
+
     def _build_technical_indicators(self, frame: pd.DataFrame) -> TechnicalIndicators:
-        close_series = self._numeric_series(frame, ["Close", "close", "Adj Close", "adj close", "adj_close"])
-        volume_series = self._numeric_series(frame, ["Volume", "volume"])
+        work = self._clean_price_frame(frame)
+        close_series = work["_close"]
+        volume_series = self._numeric_series(work, ["Volume", "volume"])
         latest_close = self._series_last(close_series)
         previous_close = self._series_last(close_series.iloc[:-1]) if len(close_series) > 1 else None
         change_percent = None
         if latest_close is not None and previous_close not in (None, 0):
             change_percent = ((latest_close - previous_close) / previous_close) * 100
+        high_52, low_52 = self._fifty_two_week_range(work)
         return TechnicalIndicators(
             latest_close=latest_close,
             change_percent=change_percent,
-            moving_average_20=self._series_mean(close_series.tail(20)),
-            moving_average_50=self._series_mean(close_series.tail(50)),
+            # an average over fewer bars than its window is a different indicator: report it as unavailable
+            moving_average_20=self._series_mean(close_series.tail(20)) if len(close_series) >= MIN_BARS_MA20 else None,
+            moving_average_50=self._series_mean(close_series.tail(50)) if len(close_series) >= MIN_BARS_MA50 else None,
             average_volume_20=self._series_mean(volume_series.tail(20)),
-            high_52_week=self._series_max(close_series.tail(252) if len(close_series) > 252 else close_series),
-            low_52_week=self._series_min(close_series.tail(252) if len(close_series) > 252 else close_series),
+            high_52_week=high_52,
+            low_52_week=low_52,
             rsi_14=self._calculate_rsi(close_series, period=14),
         )
+
+    def _indicator_warnings(self, frame: pd.DataFrame, indicators: TechnicalIndicators, existing: list[str]) -> list[str]:
+        """Explain every window indicator that could not be computed from the available history."""
+        bars = len(self._clean_price_frame(frame))
+        warnings: list[str] = []
+        if indicators.moving_average_20 is None:
+            warnings.append(f"20-day moving average unavailable: only {bars} valid daily closes (need {MIN_BARS_MA20})")
+        if indicators.moving_average_50 is None:
+            warnings.append(f"50-day moving average unavailable: only {bars} valid daily closes (need {MIN_BARS_MA50})")
+        if indicators.high_52_week is None and not any("52-week" in w for w in existing):
+            warnings.append(
+                f"52-week range unavailable: {bars} valid daily closes in the fetched history "
+                f"(need at least {MIN_52W_BARS} spanning {MIN_52W_SPAN_DAYS}+ days)"
+            )
+        return warnings
 
     def _serialize_earnings(self, earnings_frame: Any) -> list[EarningsRecord]:
         if not isinstance(earnings_frame, pd.DataFrame) or earnings_frame.empty:

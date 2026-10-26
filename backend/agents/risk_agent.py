@@ -5,8 +5,11 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from agents.gemini_client import GenerationInfo, generation_info, meaningful_text, reject_llm_output
 from agents.language_agent import LanguageAgent
 from backend.agents.research_agent import ResearchReport
+from backend.currency import currency_prompt_note
+from backend.market_cap import classify_market_cap, tier_prompt_note
 from backend.scoring_engine import ScoringEngine, ScoringResult
 from backend.workflow_state import WorkflowState, WorkflowStep
 
@@ -31,6 +34,22 @@ class RiskReport(BaseModel):
     weaknesses: list[str] = Field(default_factory=list)
     recommendations: list[str] = Field(default_factory=list)
     reasons: list[str] = Field(default_factory=list)
+    generation: Optional[GenerationInfo] = None  # LLM or deterministic fallback, and why
+
+
+def _risk_output_problem(generated: "RiskReport") -> Optional[str]:
+    """Why an LLM risk assessment is unusable (None when it is fine). Mirrors what the Risk panel displays."""
+    missing = [name for name in ("volatility", "liquidity", "valuation", "financial_risk", "news_risk",
+                                 "macro_risk", "overall_risk_rating")
+               if not meaningful_text(getattr(generated, name))]
+    if missing:
+        return "risk assessment missing or empty: " + ", ".join(missing)
+    score = generated.risk_score
+    if score is None or isinstance(score, bool) or not 0 <= score <= 100:
+        return f"risk_score missing or outside 0-100: {score!r}"
+    if not any(meaningful_text(item) for item in generated.reasons + generated.weaknesses + generated.recommendations):
+        return "risk assessment has no reasons, weaknesses or recommendations"
+    return None
 
 
 class RiskRequest(BaseModel):
@@ -54,6 +73,7 @@ class RiskAgent:
 
         llm_risk = self._generate_with_llm(report)
         risk_report = llm_risk or self._build_rule_based_risk(report)
+        risk_report.generation = generation_info(self.language_agent, used_llm=llm_risk is not None)
 
         if workflow_state is not None:
             workflow_state.risk_report = risk_report
@@ -76,7 +96,8 @@ class RiskAgent:
             "volatility, liquidity, valuation, financial_risk, news_risk, macro_risk, "
             "overall_risk, overall_risk_rating, risk_score (0-100), "
             "weaknesses (list of strings), recommendations (list of strings), reasons (list of strings). "
-            "Output ONLY valid JSON.\n\n"
+            "Output ONLY valid JSON.\n"
+            f"{currency_prompt_note(report.currency)}{tier_prompt_note(report.market_cap, report.currency)}\n"
             f"ResearchReport:\n{report.model_dump_json(indent=2)}"
         )
 
@@ -87,7 +108,12 @@ class RiskAgent:
             payload = self.language_agent.extract_json(raw)
             if payload is None:
                 return None
-            return RiskReport.model_validate(payload)
+            generated = RiskReport.model_validate(payload)
+            problem = _risk_output_problem(generated)
+            if problem:
+                reject_llm_output(self.language_agent, problem)
+                return None
+            return generated
         except Exception as exc:
             logger.warning("LLM risk generation failed: %s", exc)
             return None
@@ -114,13 +140,14 @@ class RiskAgent:
 
         # Liquidity from market cap
         market_cap = report.market_cap
-        if market_cap and market_cap >= 10e9:
+        tier = classify_market_cap(market_cap, report.currency) if market_cap else None
+        if tier in ("mega", "large"):
             liquidity_label = "High"
-        elif market_cap and market_cap >= 2e9:
+        elif tier == "mid":
             liquidity_label = "Moderate"
-        elif market_cap:
+        elif tier == "small":
             liquidity_label = "Low"
-        else:
+        else:  # no market cap, or no verified thresholds for this currency
             liquidity_label = "Unknown"
 
         # Valuation from PE

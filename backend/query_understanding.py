@@ -5,6 +5,16 @@ import logging
 from typing import Optional, List
 from pydantic import BaseModel, ConfigDict
 
+from agents.gemini_client import (
+    GeminiError,
+    GeminiSettings,
+    GenerationInfo,
+    INVALID_RESPONSE,
+    UNKNOWN,
+    create_model,
+    generate_text,
+)
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -154,21 +164,16 @@ class ParsedQuery(BaseModel):
     time_horizon: str = ""
     sector: str = ""
     original_query: str = ""
+    generation: Optional[GenerationInfo] = None  # LLM parse or rule-based fallback, and why
 
 class QueryParser:
     def __init__(self):
-        self.use_gemini = False
-        self.gemini_model = None
-        
-        try:
-            import google.generativeai as genai
-            api_key = os.getenv('GEMINI_API_KEY')
-            if api_key:
-                genai.configure(api_key=api_key)
-                self.gemini_model = genai.GenerativeModel('gemini-3.8-flash')
-                self.use_gemini = True
-        except ImportError:
-            logger.warning("google.generativeai not installed. Query parsing will fallback.")
+        self.settings = GeminiSettings.from_env()
+        self.model_name = self.settings.model
+        self.gemini_model, self.unavailable_reason = create_model(self.settings)
+        self.use_gemini = self.gemini_model is not None
+        if not self.use_gemini:
+            logger.warning("Gemini unavailable (%s). Query parsing will fall back to the rule-based parser.", self.unavailable_reason)
 
     def parse(self, query: str) -> ParsedQuery:
         parsed = ParsedQuery(original_query=query)
@@ -186,11 +191,12 @@ Return a strict JSON object with these exact keys:
 
 Output ONLY valid JSON.
 """
+        fallback_reason = self.unavailable_reason
         if self.use_gemini and self.gemini_model:
+            fallback_reason = INVALID_RESPONSE  # replaced below if the call itself fails
             try:
-                response = self.gemini_model.generate_content(prompt)
-                raw_text = (response.text or "").strip() if response else ""
-                
+                raw_text = generate_text(self.gemini_model, prompt, self.settings)
+
                 cleaned = re.sub(r"^```(?:json)?", "", raw_text, flags=re.IGNORECASE).strip()
                 cleaned = re.sub(r"```$", "", cleaned).strip()
                 
@@ -205,15 +211,22 @@ Output ONLY valid JSON.
                         except json.JSONDecodeError:
                             pass
                         
-                if data:
+                if isinstance(data, dict) and data:
                     parsed.companies = data.get("companies", [])
                     parsed.tickers = data.get("tickers", [])
                     parsed.intent = data.get("intent", "")
                     parsed.time_horizon = data.get("time_horizon", "")
                     parsed.sector = data.get("sector", "")
                     logger.info(f"[GeminiParser] companies={parsed.companies}, tickers={parsed.tickers}")
+            except GeminiError as e:
+                fallback_reason = e.kind
+                logger.warning("Gemini query parsing failed (%s). Falling back to rule-based parser.", e.kind)
             except Exception as e:
+                fallback_reason = UNKNOWN
                 logger.error(f"Gemini query parsing failed ({e}). Falling back to rule-based parser.")
+
+        used_llm = bool(parsed.companies or parsed.tickers)
+        parsed.generation = GenerationInfo.llm(self.model_name) if used_llm else GenerationInfo.fallback(fallback_reason)
 
         # If LLM failed or returned nothing, use robust rule-based fallback
         if not parsed.companies and not parsed.tickers:

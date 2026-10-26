@@ -42,7 +42,17 @@ export interface NewsArticle {
   publish_date?: string;
 }
 
+export interface GenerationInfo {
+  source: 'llm' | 'fallback';
+  model?: string | null; // Gemini model, when source is 'llm'
+  reason?: string | null; // why the fallback was used, when source is 'fallback'
+}
+
 export interface ResearchReport {
+  generation?: GenerationInfo | null;
+  currency?: string | null;
+  currency_source?: string | null;
+  market_cap_tier?: 'mega' | 'large' | 'mid' | 'small' | null; // null = unclassified
   company?: string;
   ticker?: string;
   symbol?: string;
@@ -62,6 +72,10 @@ export interface ResearchReport {
   technical_summary?: string;
   sentiment?: string;
   sources?: string[];
+  market_data_source?: string | null;
+  market_data_as_of?: string | null;
+  market_data_freshness?: string | null;
+  market_data_warnings?: string[];
   summary?: string;
   market_data?: MarketData[];
   context?: string[];
@@ -70,6 +84,8 @@ export interface ResearchReport {
 }
 
 export interface StrategyReport {
+  generation?: GenerationInfo | null;
+  currency?: string | null;
   bull_thesis?: string;
   bear_thesis?: string;
   suggested_strategy?: string;
@@ -83,6 +99,7 @@ export interface StrategyReport {
 }
 
 export interface RiskReport {
+  generation?: GenerationInfo | null;
   overall_risk?: string;
   overall_risk_rating?: string;
   risk_score?: number;
@@ -98,6 +115,8 @@ export interface RiskReport {
 }
 
 export interface DecisionReport {
+  generation?: GenerationInfo | null;
+  currency?: string | null;
   recommendation?: string;
   confidence?: number;
   reasoning?: string;
@@ -116,10 +135,20 @@ export interface WorkflowMetadata {
   errors?: string[];
 }
 
+export interface ParsedQuery {
+  original_query?: string;
+  companies?: string[];
+  tickers?: string[];
+  intent?: string;
+  time_horizon?: string;
+  generation?: GenerationInfo | null;
+}
+
 export interface WorkflowState {
   research_report?: ResearchReport;
   strategy_report?: StrategyReport;
   risk_report?: RiskReport;
   decision_report?: DecisionReport;
+  parsed_query?: ParsedQuery | null;
   metadata?: WorkflowMetadata;
 }

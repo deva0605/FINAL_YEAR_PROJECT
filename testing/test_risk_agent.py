@@ -1,129 +1,156 @@
+"""RiskAgent tests against the current report models (ResearchReport / RiskReport), including `generation`.
+
+All figures are synthetic fixtures. No LLM is used: the agent's language agent is a stub with Gemini switched off.
+
+Run with: python -m unittest testing.test_risk_agent
+"""
+import json
 import unittest
+from unittest import mock
 
 from fastapi.testclient import TestClient
 
-from backend.agents.research_agent import (
-    EarningsRecord,
-    Fundamentals,
-    NewsArticle,
-    ResearchReport,
-    TechnicalIndicators,
-    MarketDataPoint,
-)
+from agents.gemini_client import GenerationInfo
+from backend.agents.research_agent import ResearchReport
 from backend.agents.risk_agent import RiskAgent, RiskReport
-from orchestrator.orchestrator import app
+from backend.workflow_state import WorkflowState, WorkflowStep
+from orchestrator import orchestrator as orchestrator_module
 
 
 class FakeLanguageAgent:
+    """Gemini switched off, as when GEMINI_API_KEY is missing."""
+
     use_gemini = False
     gemini_model = None
+    unavailable_reason = "no_api_key"
 
 
-def build_sample_report() -> ResearchReport:
-    return ResearchReport(
+def build_sample_report(**overrides) -> ResearchReport:
+    fields = dict(
         company="Reliance Industries Limited",
-        symbol="RELIANCE.BO",
-        price=1326.5,
-        technical_indicators=TechnicalIndicators(
-            latest_close=1326.5,
-            change_percent=2.5,
-            moving_average_20=1310.0,
-            moving_average_50=1295.0,
-            average_volume_20=740988.0,
-            high_52_week=1400.0,
-            low_52_week=1100.0,
-            rsi_14=54.3,
-        ),
-        fundamentals=Fundamentals(
-            long_name="Reliance Industries Limited",
-            sector="Energy",
-            industry="Oil & Gas Refining & Marketing",
-            market_cap=17278437425152,
-            pe_ratio=20.75,
-            price_to_book=1.96,
-            dividend_yield=0.38,
-            beta=0.22,
-            website="https://www.ril.com",
-            long_business_summary="Diversified Indian conglomerate with energy, retail, and digital services.",
-        ),
-        earnings=[
-            EarningsRecord(year=2026, earnings=807750000000),
-            EarningsRecord(year=2025, earnings=696480000000),
-        ],
-        news=[
-            NewsArticle(title="Reliance update", text="Strong quarterly performance", url="https://example.com")
-        ],
-        context=["Positive sentiment from recent earnings update"],
-        summary="Research summary",
-        market_data=[
-            MarketDataPoint(date="2026-07-17", open=1301, high=1329.95, low=1295.6, close=1326.5, volume=848885),
-            MarketDataPoint(date="2026-07-28", volume=633091, close=1326.5),
-        ],
+        ticker="RELIANCE.NS",
+        current_price=1326.5,
+        market_cap=17278437425152,
+        sector="Energy",
+        industry="Oil & Gas Refining & Marketing",
+        pe_ratio=20.75,
+        high_52_week=1400.0,
+        low_52_week=1100.0,
+        moving_averages={"20d": 1310.0, "50d": 1295.0},
+        rsi=54.3,
+        latest_news=[{"title": "Reliance update", "url": "https://example.com", "publish_date": None}],
+        fundamental_summary="Diversified Indian conglomerate with energy, retail, and digital services.",
+        technical_summary="Trading above both moving averages.",
+        sentiment="Neutral",
+        currency="INR",
+        generation=GenerationInfo.llm("research-model"),
     )
+    fields.update(overrides)
+    return ResearchReport(**fields)
 
 
 class RiskAgentTests(unittest.TestCase):
-    def test_fallback_risk_returns_structured_report(self):
-        agent = RiskAgent(language_agent=FakeLanguageAgent())
-        report = build_sample_report()
+    def setUp(self):
+        self.agent = RiskAgent(language_agent=FakeLanguageAgent())
 
-        result = agent.assess_risk(report)
+    def test_fallback_risk_returns_structured_report(self):
+        result = self.agent.assess_risk(build_sample_report())
 
         self.assertIsInstance(result, RiskReport)
-        self.assertIn(result.overall_risk_rating, {"Low", "Medium", "High"})
+        # 52-week range (1400-1100)/1100 = 27%: moderate; P/E 20.75 is below 30: fair
+        self.assertEqual(result.volatility, "Moderate")
+        self.assertEqual(result.valuation, "Fair")
+        # INR has no verified market-cap thresholds, so liquidity is explicitly unknown (not guessed)
+        self.assertEqual(result.liquidity, "Unknown")
+        self.assertIn(result.news_risk, {"Low", "Moderate", "High"})
+        self.assertIn(result.financial_risk, {"Low", "Moderate", "High"})
+        self.assertEqual(result.macro_risk, "Moderate")
+        self.assertIn(result.overall_risk, {"Low", "Moderate", "High", "Very High"})
+        self.assertIn(result.overall_risk_rating, {"Low Risk", "Moderate Risk", "High Risk", "Very High Risk"})
+        self.assertIsNotNone(result.risk_score)
         self.assertGreaterEqual(result.risk_score, 0)
         self.assertLessEqual(result.risk_score, 100)
-        self.assertTrue(result.volatility_analysis.summary)
-        self.assertTrue(result.valuation_risk.summary)
-        self.assertTrue(result.technical_risk.summary)
-        self.assertTrue(result.fundamental_risk.summary)
-        self.assertTrue(result.news_risk.summary)
-        self.assertTrue(result.strengths)
         self.assertIsInstance(result.weaknesses, list)
-        self.assertIsInstance(result.red_flags, list)
-        self.assertTrue(result.reasoning)
+        self.assertTrue(result.recommendations)
+        self.assertTrue(result.reasons)
+        self.assertIn("Rule-Based Analysis (LLM unavailable)", result.reasons)
+
+    def test_liquidity_follows_the_verified_currency(self):
+        usd = self.agent.assess_risk(build_sample_report(currency="USD"))
+        self.assertEqual(usd.liquidity, "High")  # a verified-USD market cap above 10B
+        unknown = self.agent.assess_risk(build_sample_report(currency=None))
+        self.assertEqual(unknown.liquidity, "Unknown")
+
+    def test_fallback_is_marked_in_generation_metadata(self):
+        result = self.agent.assess_risk(build_sample_report())
+        self.assertEqual(result.generation.model_dump(), {"source": "fallback", "model": None, "reason": "no_api_key"})
+
+    def test_missing_values_do_not_break_the_assessment(self):
+        sparse = ResearchReport(company="Sparse Co", ticker="SPARSE")
+        result = self.agent.assess_risk(sparse)
+        self.assertEqual((result.volatility, result.valuation, result.liquidity), ("Unknown", "Unknown", "Unknown"))
+        self.assertTrue(result.overall_risk_rating)
         self.assertTrue(result.recommendations)
 
-    def test_risk_endpoint_returns_report(self):
-        from orchestrator import orchestrator as orchestrator_module
+    def test_accepts_a_plain_dict_and_a_workflow_state(self):
+        report = build_sample_report()
+        from_dict = self.agent.assess_risk(research_report=report.model_dump(mode="json"))
+        self.assertEqual(from_dict.overall_risk_rating, self.agent.assess_risk(report).overall_risk_rating)
 
-        original_agent = orchestrator_module.risk_agent
-        try:
-            class EndpointStubRiskAgent:
-                def assess_risk(self, research_report: ResearchReport) -> RiskReport:
-                    return RiskReport(
-                        symbol=research_report.symbol,
-                        company=research_report.company,
-                        overall_risk_rating="Medium",
-                        risk_score=52,
-                        volatility_analysis={"score": 45, "level": "Medium", "summary": "Volatility OK", "metrics": {}},
-                        valuation_risk={"score": 50, "level": "Medium", "summary": "Valuation OK", "metrics": {}},
-                        technical_risk={"score": 55, "level": "Medium", "summary": "Technical OK", "metrics": {}},
-                        fundamental_risk={"score": 48, "level": "Medium", "summary": "Fundamental OK", "metrics": {}},
-                        news_risk={"score": 40, "level": "Low", "summary": "News OK", "metrics": {}},
-                        liquidity_risk=None,
-                        strengths=["Stable earnings"],
-                        weaknesses=["Watch valuation"],
-                        red_flags=[],
-                        reasoning="Stubbed risk reasoning",
-                        recommendations=["Use staged entries"],
-                    )
+        state = WorkflowState(research_report=report)
+        result = self.agent.assess_risk(workflow_state=state)
+        self.assertIs(state.risk_report, result)
+        self.assertIn(WorkflowStep.RISK, state.metadata.completed_steps)
 
-            orchestrator_module.risk_agent = EndpointStubRiskAgent()
+    def test_requires_a_research_report(self):
+        with self.assertRaises(ValueError):
+            self.agent.assess_risk()
 
-            client = TestClient(app)
-            response = client.post(
-                "/risk/risk",
-                json={"research_report": build_sample_report().model_dump(mode="json")},
-            )
+    def test_report_serialises_with_generation(self):
+        payload = json.loads(self.agent.assess_risk(build_sample_report()).model_dump_json())
+        self.assertEqual(payload["generation"]["source"], "fallback")
+        for field in ("volatility", "liquidity", "valuation", "financial_risk", "news_risk", "macro_risk",
+                      "overall_risk", "overall_risk_rating", "risk_score", "weaknesses", "recommendations", "reasons"):
+            self.assertIn(field, payload)
 
-            self.assertEqual(response.status_code, 200)
-            payload = response.json()
-            self.assertEqual(payload["overall_risk_rating"], "Medium")
-            self.assertEqual(payload["risk_score"], 52)
-            self.assertEqual(payload["recommendations"], ["Use staged entries"])
-        finally:
-            orchestrator_module.risk_agent = original_agent
+
+class RiskEndpointTests(unittest.TestCase):
+    def post(self, body):
+        return TestClient(orchestrator_module.app).post("/risk/risk", json=body)
+
+    def test_endpoint_returns_the_agents_report(self):
+        class StubRiskAgent:
+            def assess_risk(self, research_report: ResearchReport) -> RiskReport:
+                return RiskReport(
+                    volatility="Moderate", liquidity="Unknown", valuation="Fair", financial_risk="Low",
+                    news_risk="Low", macro_risk="Moderate", overall_risk="Moderate",
+                    overall_risk_rating="Medium Risk", risk_score=52.0,
+                    weaknesses=["Watch valuation"], recommendations=["Use staged entries"],
+                    reasons=[f"stub for {research_report.ticker}"],
+                )
+
+        with mock.patch.object(orchestrator_module, "risk_agent", StubRiskAgent()):
+            response = self.post({"research_report": build_sample_report().model_dump(mode="json")})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["overall_risk_rating"], "Medium Risk")
+        self.assertEqual(payload["risk_score"], 52.0)
+        self.assertEqual(payload["recommendations"], ["Use staged entries"])
+        self.assertEqual(payload["reasons"], ["stub for RELIANCE.NS"])
+
+    def test_endpoint_with_the_real_agent_includes_generation(self):
+        with mock.patch.object(orchestrator_module, "risk_agent", RiskAgent(language_agent=FakeLanguageAgent())):
+            response = self.post({"research_report": build_sample_report().model_dump(mode="json")})
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertNotIn("error", payload)
+        self.assertEqual(payload["generation"], {"source": "fallback", "model": None, "reason": "no_api_key"})
+        self.assertEqual(payload["volatility"], "Moderate")
+        self.assertEqual(payload["liquidity"], "Unknown")
+
+    def test_endpoint_rejects_a_request_without_a_report(self):
+        self.assertEqual(self.post({}).status_code, 422)
 
 
 if __name__ == "__main__":

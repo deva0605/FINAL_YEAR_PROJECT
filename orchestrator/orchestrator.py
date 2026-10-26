@@ -15,9 +15,10 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 # 3. Now import FastAPI and the Agents
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, ValidationError
 from backend.agents.research_agent import ResearchAgent, ResearchReport
-from backend.agents.strategy_agent import StrategyAgent, StrategyRequest
-from backend.agents.risk_agent import RiskAgent, RiskRequest
+from backend.agents.strategy_agent import StrategyAgent, StrategyReport, StrategyRequest
+from backend.agents.risk_agent import RiskAgent, RiskReport, RiskRequest
 from backend.agents.decision_agent import DecisionAgent
 from backend.workflow_orchestrator import DefaultWorkflowOrchestrator
 from backend.workflow_state import WorkflowState
@@ -100,7 +101,7 @@ async def health_check():
     return {"status": "healthy", "message": "Market Intelligence API is running"}
 
 @app.get("/retrieve/retrieve")
-async def retrieve(query: str, symbols: Optional[str] = None):
+def retrieve(query: str, symbols: Optional[str] = None):
     try:
         logger.info(f"Processing retrieve request for query: {query}")
         
@@ -144,7 +145,7 @@ async def retrieve(query: str, symbols: Optional[str] = None):
         return {"error": str(e)}
 
 @app.post("/analyze/analyze")
-async def analyze(data: dict):
+def analyze(data: dict):
     try:
         logger.info("Processing analyze request")
 
@@ -166,7 +167,7 @@ async def analyze(data: dict):
         return {"error": str(e)}
 
 @app.post("/strategy/strategy")
-async def strategy(request: StrategyRequest):
+def strategy(request: StrategyRequest):
     try:
         logger.info("Processing strategy request")
         workflow_state = WorkflowState(research_report=request.research_report)
@@ -180,7 +181,7 @@ async def strategy(request: StrategyRequest):
         return {"error": str(e)}
 
 @app.post("/risk/risk")
-async def risk(request: RiskRequest):
+def risk(request: RiskRequest):
     try:
         logger.info("Processing risk request")
         workflow_state = WorkflowState(research_report=request.research_report)
@@ -194,14 +195,33 @@ async def risk(request: RiskRequest):
         return {"error": str(e)}
 
 
-@app.post("/decision/decision")
-async def decision(data: dict):
-    try:
-        payload = data or {}
-        research = payload.get("research_report")
-        strategy = payload.get("strategy_report")
-        risk = payload.get("risk_report")
+def _validated_report(model: type[BaseModel], value, name: str, required: bool = False):
+    """Turn a request-body dict into its typed report model.
 
+    The decision agent works on typed reports (currency, price, company, model_dump_json...), so plain dicts must
+    not reach WorkflowState. Invalid input is a client error: 422 with field-level details, like /strategy and /risk.
+    """
+    if value is None:
+        if required:
+            raise HTTPException(status_code=422, detail=[{"type": "missing", "loc": ["body", name], "msg": "Field required"}])
+        return None
+    try:
+        return model.model_validate(value)
+    except ValidationError as exc:
+        details = exc.errors(include_url=False, include_context=False, include_input=False)
+        for item in details:
+            item["loc"] = ["body", name, *item["loc"]]
+        raise HTTPException(status_code=422, detail=details) from exc
+
+
+@app.post("/decision/decision")
+def decision(data: dict):
+    payload = data or {}
+    research = _validated_report(ResearchReport, payload.get("research_report"), "research_report", required=True)
+    strategy = _validated_report(StrategyReport, payload.get("strategy_report"), "strategy_report")
+    risk = _validated_report(RiskReport, payload.get("risk_report"), "risk_report")
+
+    try:
         workflow_state = WorkflowState(
             research_report=research,
             strategy_report=strategy,
@@ -219,7 +239,7 @@ async def decision(data: dict):
 
 
 @app.post("/workflow/execute")
-async def execute_workflow(data: dict):
+def execute_workflow(data: dict):
     try:
         query = (data.get("symbol") or data.get("data", {}).get("symbol") or DEFAULT_SYMBOLS[0]).strip()
         logger.info(f"User Query: {query}")

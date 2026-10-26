@@ -2,50 +2,109 @@ import os
 import json
 import re
 import logging
+import threading
 from typing import Dict, Any, Optional
+
+from agents.gemini_client import (
+    GeminiError,
+    GeminiSettings,
+    GenerationInfo,
+    INVALID_RESPONSE,
+    OK,
+    UNKNOWN,
+    create_model,
+    generate_text,
+    meaningful_text,
+)
+
+from backend.currency import currency_prompt_note, format_large_amount, format_money
+from backend.market_cap import classify_market_cap, tier_prompt_note, unclassified_reason
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
 class LanguageAgent:
+    # class-level defaults so subclasses/tests that skip __init__ still behave
+    settings: Optional[GeminiSettings] = None
+    model_name: Optional[str] = None
+    unavailable_reason: Optional[str] = "llm_unavailable"  # why use_gemini is False
+
     def __init__(self):
         self.use_gemini = False
         self.gemini_model = None
+        self.settings = GeminiSettings.from_env()
+        self.model_name = self.settings.model
 
+        self.gemini_model, self.unavailable_reason = create_model(self.settings)
+        if self.gemini_model is not None:
+            self.use_gemini = True
+            logger.info("Gemini initialized (model=%s)", self.model_name)
+        else:
+            logger.info("Gemini unavailable (%s) — will use rule-based analysis.", self.unavailable_reason)
+
+    # ------------------------------------------------------------------
+    # LLM status of the most recent call on this thread (read by the agents to explain a fallback)
+    # ------------------------------------------------------------------
+
+    def _local(self) -> threading.local:
+        local = self.__dict__.get("_status_local")
+        if local is None:
+            local = self.__dict__.setdefault("_status_local", threading.local())
+        return local
+
+    def llm_status(self) -> Optional[str]:
+        return getattr(self._local(), "status", None)
+
+    def set_llm_status(self, status: str) -> None:
+        self._local().status = status
+
+    def _call_gemini(self, prompt: str) -> str:
+        """Bounded Gemini call (see agents/gemini_client.py); records the outcome; raises GeminiError."""
         try:
-            import google.generativeai as genai
-            api_key = os.getenv('GEMINI_API_KEY')
-            if api_key:
-                genai.configure(api_key=api_key)
-                self.gemini_model = genai.GenerativeModel('gemini-3.8-flash')
-                self.use_gemini = True
-                logger.info("Gemini Pro API initialized successfully")
-            else:
-                logger.info("GEMINI_API_KEY not found — will use rule-based analysis.")
-        except ImportError:
-            logger.info("google-generativeai not installed — will use rule-based analysis.")
-        except Exception as e:
-            logger.warning(f"Could not initialize Gemini: {str(e)}")
+            text = generate_text(self.gemini_model, prompt, self.settings)
+        except GeminiError as exc:
+            self.set_llm_status(exc.kind)
+            raise
+        self.set_llm_status(OK)
+        return text
 
-    def generate_research_summaries(self, symbol, company_name, context, technical_indicators, fundamentals, earnings) -> Dict[str, Any]:
+    def generate_research_summaries(self, symbol, company_name, context, technical_indicators, fundamentals, earnings, currency=None) -> Dict[str, Any]:
         """
         Generate fundamental/technical summaries and sentiment.
         Falls back to deterministic rule-based generation if LLM unavailable.
         """
+        reason = self.unavailable_reason
         if self.use_gemini and self.gemini_model:
             try:
-                return self._generate_with_gemini(symbol, company_name, context, technical_indicators, fundamentals, earnings)
-            except Exception as e:
-                logger.warning(f"Gemini failed ({e}) — switching to rule-based summaries.")
+                return self._generate_with_gemini(symbol, company_name, context, technical_indicators, fundamentals, earnings, currency)
+            except GeminiError as e:
+                logger.warning("Gemini failed (%s) — switching to rule-based summaries.", e.kind)
+                reason = e.kind
+            except Exception as e:  # noqa: BLE001 - never let LLM trouble fail the research request
+                logger.warning("Gemini failed unexpectedly (%s) — switching to rule-based summaries.", str(e)[:200])
+                reason = UNKNOWN
 
-        return self._generate_rule_based_summaries(symbol, company_name, technical_indicators, fundamentals, earnings)
+        return self._rule_based_with_generation(
+            GenerationInfo.fallback(reason), symbol, company_name, technical_indicators, fundamentals, earnings, currency
+        )
+
+    @staticmethod
+    def _normalise_sentiment(value) -> str:
+        """The LLM's sentiment if it is Bullish / Bearish / Neutral (any case); otherwise the neutral default."""
+        label = str(value).strip().capitalize() if isinstance(value, str) else ""
+        return label if label in ("Bullish", "Bearish", "Neutral") else "Neutral"
+
+    def _rule_based_with_generation(self, generation, symbol, company_name, technical_indicators, fundamentals, earnings, currency):
+        summaries = self._generate_rule_based_summaries(symbol, company_name, technical_indicators, fundamentals, earnings, currency)
+        summaries["generation"] = generation.model_dump()
+        return summaries
 
     # ------------------------------------------------------------------
     # LLM path
     # ------------------------------------------------------------------
 
-    def _generate_with_gemini(self, symbol, company_name, context, technical_indicators, fundamentals, earnings) -> Dict[str, Any]:
+    def _generate_with_gemini(self, symbol, company_name, context, technical_indicators, fundamentals, earnings, currency=None) -> Dict[str, Any]:
         prompt = f"""You are an expert financial analyst. Analyze the following data for {company_name} ({symbol}).
 
 CONTEXT AND NEWS:
@@ -60,6 +119,7 @@ FUNDAMENTALS:
 EARNINGS:
 {earnings}
 
+{currency_prompt_note(currency)}{tier_prompt_note((fundamentals or {}).get('market_cap'), currency)}
 Return a strictly valid JSON object with the following keys:
 - "fundamental_summary": A concise paragraph summarizing the company's fundamentals and recent earnings.
 - "technical_summary": A concise paragraph summarizing the technical setup (moving averages, RSI, momentum).
@@ -67,36 +127,35 @@ Return a strictly valid JSON object with the following keys:
 
 Output ONLY valid JSON without markdown blocks.
 """
-        response = self.gemini_model.generate_content(prompt)
-        raw_text = (response.text or "").strip() if response else ""
+        raw_text = self._call_gemini(prompt)
+        data = self.extract_json(raw_text)
 
-        cleaned = re.sub(r"^```(?:json)?", "", raw_text, flags=re.IGNORECASE).strip()
-        cleaned = re.sub(r"```$", "", cleaned).strip()
-
-        data = None
-        try:
-            data = json.loads(cleaned)
-        except json.JSONDecodeError:
-            match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
-            if match:
-                data = json.loads(match.group(0))
-
-        if data:
+        fundamental = data.get("fundamental_summary") if isinstance(data, dict) else None
+        technical = data.get("technical_summary") if isinstance(data, dict) else None
+        if meaningful_text(fundamental) or meaningful_text(technical):  # at least one real summary
             return {
-                "fundamental_summary": data.get("fundamental_summary", ""),
-                "technical_summary": data.get("technical_summary", ""),
-                "sentiment": data.get("sentiment", "Neutral"),
+                "fundamental_summary": fundamental if meaningful_text(fundamental) else "",
+                "technical_summary": technical if meaningful_text(technical) else "",
+                "sentiment": self._normalise_sentiment(data.get("sentiment")),
+                "generation": GenerationInfo.llm(self.model_name).model_dump(),
             }
-        return self._generate_rule_based_summaries(symbol, company_name, technical_indicators, fundamentals, earnings)
+        logger.warning("Gemini returned no usable summaries — using rule-based summaries.")
+        self.set_llm_status(INVALID_RESPONSE)
+        return self._rule_based_with_generation(
+            GenerationInfo.fallback(INVALID_RESPONSE), symbol, company_name, technical_indicators, fundamentals, earnings, currency
+        )
 
     # ------------------------------------------------------------------
     # Rule-based path
     # ------------------------------------------------------------------
 
-    def _generate_rule_based_summaries(self, symbol, company_name, technical_indicators, fundamentals, earnings) -> Dict[str, Any]:
+    def _generate_rule_based_summaries(self, symbol, company_name, technical_indicators, fundamentals, earnings, currency=None) -> Dict[str, Any]:
         """Generate human-readable summaries using retrieved financial data — no LLM required."""
         logger.info("Generating rule-based summaries for %s", symbol)
         
+        def money(value):
+            return format_money(value, currency)
+
         # ---------- Fundamental Summary ----------
         fund_parts = []
         market_cap = (fundamentals or {}).get("market_cap")
@@ -111,8 +170,13 @@ Output ONLY valid JSON without markdown blocks.
             fund_parts.append(f"{company_name} ({symbol}) is an investable security.")
 
         if market_cap:
-            tier = "mega-cap" if market_cap >= 200e9 else "large-cap" if market_cap >= 10e9 else "mid-cap" if market_cap >= 2e9 else "small-cap"
-            fund_parts.append(f"It is a {tier} company with a market capitalization of ${market_cap/1e9:.1f}B.")
+            tier = {"mega": "mega-cap", "large": "large-cap", "mid": "mid-cap", "small": "small-cap"}.get(classify_market_cap(market_cap, currency))
+            if tier:
+                fund_parts.append(f"It is a {tier} company with a market capitalization of {format_large_amount(market_cap, currency)}.")
+            else:
+                fund_parts.append(
+                    f"Its market capitalization is {format_large_amount(market_cap, currency)} (size tier not assessed: {unclassified_reason(currency)})."
+                )
 
         if pe is not None:
             if pe < 0:
@@ -128,7 +192,8 @@ Output ONLY valid JSON without markdown blocks.
             recent = [e for e in earnings if e.get("year") and e.get("earnings") is not None]
             if recent:
                 recent = sorted(recent, key=lambda x: x["year"], reverse=True)[:2]
-                yr_str = ", ".join([f"{e['year']}: ${e['earnings']/1e9:.2f}B" for e in recent])
+                financial_currency = (fundamentals or {}).get("financial_currency") or currency
+                yr_str = ", ".join([f"{e['year']}: {format_large_amount(e['earnings'], financial_currency)}" for e in recent])
                 fund_parts.append(f"Recent earnings: {yr_str}.")
 
         if summary:
@@ -148,7 +213,7 @@ Output ONLY valid JSON without markdown blocks.
         chg = (technical_indicators or {}).get("change_percent")
 
         if price:
-            tech_parts.append(f"Currently trading at ${price:.2f}" + (f" ({chg:+.2f}% today)." if chg is not None else "."))
+            tech_parts.append(f"Currently trading at {money(price)}" + (f" ({chg:+.2f}% today)." if chg is not None else "."))
 
         if rsi is not None:
             if rsi < 30:
@@ -160,15 +225,15 @@ Output ONLY valid JSON without markdown blocks.
 
         if ma20 and ma50 and price:
             if price > ma20 > ma50:
-                tech_parts.append(f"A bullish alignment: price (${price:.2f}) > 20d MA (${ma20:.2f}) > 50d MA (${ma50:.2f}).")
+                tech_parts.append(f"A bullish alignment: price ({money(price)}) > 20d MA ({money(ma20)}) > 50d MA ({money(ma50)}).")
             elif price < ma20 < ma50:
-                tech_parts.append(f"A bearish alignment: price (${price:.2f}) < 20d MA (${ma20:.2f}) < 50d MA (${ma50:.2f}).")
+                tech_parts.append(f"A bearish alignment: price ({money(price)}) < 20d MA ({money(ma20)}) < 50d MA ({money(ma50)}).")
             else:
-                tech_parts.append(f"20d MA: ${ma20:.2f}, 50d MA: ${ma50:.2f}.")
+                tech_parts.append(f"20d MA: {money(ma20)}, 50d MA: {money(ma50)}.")
 
         if high_52 and low_52 and price:
             pos = (price - low_52) / (high_52 - low_52) * 100 if (high_52 - low_52) > 0 else 50
-            tech_parts.append(f"The stock is at {pos:.0f}% of its 52-week range (L: ${low_52:.2f} / H: ${high_52:.2f}).")
+            tech_parts.append(f"The stock is at {pos:.0f}% of its 52-week range (L: {money(low_52)} / H: {money(high_52)}).")
 
         tech_parts.append("(Rule-Based Analysis — LLM unavailable)")
         technical_summary = " ".join(tech_parts)
@@ -222,10 +287,13 @@ Output ONLY valid JSON without markdown blocks.
         if not self.use_gemini or not self.gemini_model:
             return None
         try:
-            response = self.gemini_model.generate_content(prompt)
-            return (response.text or "").strip() if response else None
-        except Exception as e:
-            logger.warning("LLM call failed: %s", e)
+            return self._call_gemini(prompt)
+        except GeminiError as e:
+            logger.warning("LLM call failed (%s): %s", e.kind, e)
+            return None
+        except Exception as e:  # noqa: BLE001
+            self.set_llm_status(UNKNOWN)
+            logger.warning("LLM call failed unexpectedly: %s", str(e)[:200])
             return None
 
     def extract_json(self, raw_text: str) -> Optional[dict]:
@@ -234,12 +302,16 @@ Output ONLY valid JSON without markdown blocks.
         cleaned = re.sub(r"```$", "", cleaned).strip()
 
         try:
-            return json.loads(cleaned)
+            parsed = json.loads(cleaned)
         except json.JSONDecodeError:
             match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
-            if not match:
-                return None
-            try:
-                return json.loads(match.group(0))
-            except json.JSONDecodeError:
-                return None
+            parsed = None
+            if match:
+                try:
+                    parsed = json.loads(match.group(0))
+                except json.JSONDecodeError:
+                    parsed = None
+        if not isinstance(parsed, dict):  # callers expect a JSON object
+            self.set_llm_status(INVALID_RESPONSE)
+            return None
+        return parsed

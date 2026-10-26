@@ -1,6 +1,11 @@
 import React from 'react';
+import { Scale } from 'lucide-react';
 import { useWorkflowStore } from '../store/useWorkflowStore';
 import { DecisionPanel } from '../components/report/DecisionPanel';
+import { RecommendationBadge } from '../components/common/Badges';
+import { PageHeader } from '../components/common/PageHeader';
+import { EmptyState } from '../components/common/EmptyState';
+import { AnalysisSourceNotice } from '../components/common/AnalysisSourceNotice';
 
 export const Decision: React.FC = () => {
   const { workflowState } = useWorkflowStore();
@@ -8,19 +13,17 @@ export const Decision: React.FC = () => {
 
   if (!report) {
     return (
-      <div className="flex flex-col items-center justify-center h-[50vh] text-slate-500">
-        <svg className="w-12 h-12 mb-4 opacity-50" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-        <h2 className="text-lg font-semibold text-slate-900">No Decision Data</h2>
-        <p className="text-sm">Run an analysis from the dashboard to reach a final decision.</p>
-      </div>
+      <>
+        <PageHeader title="Final recommendation" />
+        <EmptyState icon={<Scale className="h-5 w-5" />} title="No decision yet" description="Run an analysis from the research workspace to reach a final decision." />
+      </>
     );
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between mb-2">
-        <h2 className="text-2xl font-bold text-slate-900 tracking-tight">Final Recommendation</h2>
-      </div>
+    <div className="flex max-w-3xl flex-col gap-6">
+      <PageHeader title="Final recommendation" description={workflowState?.research_report?.company} actions={<RecommendationBadge recommendation={report.recommendation} large />} />
+      {workflowState && <AnalysisSourceNotice state={workflowState} />}
       <DecisionPanel report={report} strategy={workflowState?.strategy_report} />
     </div>
   );
