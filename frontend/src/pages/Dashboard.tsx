@@ -15,6 +15,7 @@ import { RiskPanel } from '../components/report/RiskPanel';
 import { DecisionPanel } from '../components/report/DecisionPanel';
 import { ExplainabilityPanel } from '../components/report/ExplainabilityPanel';
 import { WorkflowTimeline } from '../components/report/WorkflowTimeline';
+import { StockPriceChart } from '../components/report/StockPriceChart';
 import { AnalysisSourceNotice } from '../components/common/AnalysisSourceNotice';
 import { Notice } from '../components/common/Notice';
 import { friendlyError, friendlyWorkflowError } from '../utils/format';
@@ -130,6 +131,15 @@ export const Dashboard: React.FC = () => {
               <AnalysisSourceNotice state={workflowState!} />
 
               {workflowState.decision_report && <DecisionPanel report={workflowState.decision_report} strategy={workflowState.strategy_report} />}
+
+              {workflowState.research_report?.ticker && (
+                <StockPriceChart
+                  symbol={workflowState.research_report.ticker}
+                  company={workflowState.research_report.company}
+                  latestPrice={workflowState.research_report.current_price}
+                  currency={workflowState.research_report.currency}
+                />
+              )}
 
               <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
                 <MarketSnapshot report={workflowState.research_report} />

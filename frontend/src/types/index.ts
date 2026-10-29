@@ -152,3 +152,26 @@ export interface WorkflowState {
   parsed_query?: ParsedQuery | null;
   metadata?: WorkflowMetadata;
 }
+
+// ---- Chart history types ------------------------------------------------
+
+export interface OhlcBar {
+  date: string;         // YYYY-MM-DD
+  open?: number | null;
+  high?: number | null;
+  low?: number | null;
+  close: number;
+  volume?: number | null;
+}
+
+export interface ChartHistoryResponse {
+  symbol: string;
+  exchange?: string | null;
+  source: string;
+  price_adjusted: boolean;
+  currency?: string | null;
+  from_date?: string | null;
+  to_date?: string | null;
+  bars: OhlcBar[];
+  warnings: string[];
+}
