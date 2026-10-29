@@ -13,6 +13,7 @@ import { PageHeader } from '../components/common/PageHeader';
 import { EmptyState } from '../components/common/EmptyState';
 import { AnalysisSourceNotice } from '../components/common/AnalysisSourceNotice';
 import { ExportPdfButton } from '../components/common/ExportPdfButton';
+import { StockPriceChart } from '../components/report/StockPriceChart';
 
 export const Report: React.FC = () => {
   const { workflowState } = useWorkflowStore();
@@ -48,6 +49,17 @@ export const Report: React.FC = () => {
         <ExecutiveSummary state={workflowState} />
         <AnalysisSourceNotice state={workflowState} />
         {workflowState.decision_report && <DecisionPanel report={workflowState.decision_report} />}
+
+        {workflowState.research_report?.ticker && (
+          <StockPriceChart
+            id="price-chart-report"
+            symbol={workflowState.research_report.ticker}
+            company={workflowState.research_report.company}
+            latestPrice={workflowState.research_report.current_price}
+            currency={workflowState.research_report.currency}
+          />
+        )}
+
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2 print:block print:space-y-6">
           <MarketSnapshot report={workflowState.research_report} />
           <TechnicalAnalysisPanel report={workflowState.research_report} />
